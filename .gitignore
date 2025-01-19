@@ -1,6 +1,9 @@
 # Project files
 .idea/
 
+# Secret filet
+.env
+
 # will have compiled files and executables
 debug/
 target/
