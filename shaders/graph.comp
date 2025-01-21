@@ -15,10 +15,13 @@ vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d )
 
 void circle( vec2 pos, float r ) {
     ivec2 screenSize = imageSize( image );
+    float aspect = screenSize.x / float(screenSize.y);
+    pos.x /= aspect;
+    pos += vec2(.5);
     ivec2 p = ivec2(pos * screenSize);
 
     for( float a = 0.0f; a < 2 * 3.14159f; a += 2 * 3.14159f / 190.0f ) {
-        imageStore(image, p + ivec2(cos(a) * r * screenSize.x, sin(a) * r * screenSize.y), vec4(1));
+        imageStore(image, p + ivec2(cos(a) * r * screenSize.x, sin(a) * aspect * r * screenSize.y), vec4(1));
     }
 }
 
@@ -38,5 +41,5 @@ void main()
 
     float t = .1f + 0.5f * length( pos );
     vec3 color = palette( t, vec3( 0.5, 0.5, 0.5 ), vec3( 0.5, 0.5, 0.5 ), vec3( 2.0, 1.0, 0.0 ), vec3( 0.5, 0.20, 0.25 ) );
-    circle( positions.pos[id].xy + vec2(.5f), .01f);
+    circle( positions.pos[id].xy, .01f);
 }

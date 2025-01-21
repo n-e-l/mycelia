@@ -407,6 +407,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let application = Arc::new(Mutex::new(Application::new().await));
     App::run(
         AppConfig::default()
+            .width(1600)
+            .height(900)
             .log_fps(true)
             .vsync(true),
         application.clone(),
