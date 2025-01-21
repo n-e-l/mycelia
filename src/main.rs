@@ -10,7 +10,7 @@ use cen::graphics::renderer::RenderComponent;
 use cen::vulkan::{Buffer, CommandBuffer, DescriptorSetLayout, Image};
 use dotenv::dotenv;
 use egui::{Slider, TextWrapMode};
-use glam::{IVec4, Vec4};
+use glam::{IVec4, Vec3, Vec4};
 use gpu_allocator::MemoryLocation;
 use graph::Graph;
 use crate::database::Database;
@@ -25,8 +25,10 @@ struct Application {
     messages: Vec<String>,
     image: Option<Image>,
     buffer: Option<Buffer>,
+    edge_buffer: Option<Buffer>,
     descriptorset: Option<DescriptorSetLayout>,
-    pipeline: Option<PipelineKey>
+    pipeline: Option<PipelineKey>,
+    edge_pipeline: Option<PipelineKey>
 }
 
 impl Application {
@@ -43,8 +45,10 @@ impl Application {
             messages,
             image: None,
             buffer: None,
+            edge_buffer: None,
             descriptorset: None,
-            pipeline: None
+            pipeline: None,
+            edge_pipeline: None,
         }
     }
 }
@@ -61,11 +65,20 @@ impl RenderComponent for Application {
         );
 
         let positions = 1024;
-        let mut buffer = Buffer::new(
+        let buffer = Buffer::new(
             &renderer.device,
             &mut renderer.allocator,
             MemoryLocation::CpuToGpu,
             (positions * 4 * 8) as DeviceSize,
+            vk::BufferUsageFlags::STORAGE_BUFFER
+        );
+
+        let edges = 1024;
+        let edge_buffer = Buffer::new(
+            &renderer.device,
+            &mut renderer.allocator,
+            MemoryLocation::CpuToGpu,
+            (edges * 4 * 8) as DeviceSize,
             vk::BufferUsageFlags::STORAGE_BUFFER
         );
 
@@ -106,22 +119,45 @@ impl RenderComponent for Application {
             macros: Default::default(),
         }).expect("Failed to create pipeline");
 
+        // Pipeline
+        let edge_pipeline = renderer.pipeline_store().insert(PipelineConfig {
+            shader_path: "shaders/edges.comp".into(),
+            descriptor_set_layouts: vec![
+                descriptorset.clone(),
+            ],
+            push_constant_ranges: vec![],
+            macros: Default::default(),
+        }).expect("Failed to create pipeline");
+
         self.image = Some(image);
         self.descriptorset = Some(descriptorset);
         self.pipeline = Some(pipeline);
+        self.edge_pipeline = Some(edge_pipeline);
         self.buffer = Some(buffer);
+        self.edge_buffer = Some(edge_buffer);
     }
 
     fn render(&mut self, renderer: &mut Renderer, command_buffer: &mut CommandBuffer, swapchain_image: &vk::Image, _: &vk::ImageView) {
 
         self.graph.update();
         let positions = self.graph.get_positions();
+        let edges = self.graph.get_edges().iter().map(
+            |p| (positions[p.0], positions[p.1])
+        ).collect::<Vec<(Vec3, Vec3)>>();
 
         let (_, ivert_mem, _) = unsafe { self.buffer.as_mut().unwrap().mapped().align_to_mut::<IVec4>() };
         ivert_mem[0] = IVec4::new(positions.len() as i32, 0, 0, 0);
         let (_, vert_mem, _) = unsafe { self.buffer.as_mut().unwrap().mapped().align_to_mut::<Vec4>() };
         for i in 0..positions.len() {
             vert_mem[i+1] = Vec4::new(positions[i].x, positions[i].y, positions[i].z, 0.0);
+        }
+
+        let (_, iedge_mem, _) = unsafe { self.edge_buffer.as_mut().unwrap().mapped().align_to_mut::<IVec4>() };
+        iedge_mem[0] = IVec4::new(edges.len() as i32, 0, 0, 0);
+        let (_, edge_mem, _) = unsafe { self.edge_buffer.as_mut().unwrap().mapped().align_to_mut::<Vec4>() };
+        for i in 0..edges.len() {
+            edge_mem[i*2+1] = Vec4::new(edges[i].0.x, edges[i].0.y, edges[i].0.z, 0.0);
+            edge_mem[i*2+2] = Vec4::new(edges[i].1.x, edges[i].1.y, edges[i].1.z, 0.0);
         }
 
         // Clear render image
@@ -148,12 +184,12 @@ impl RenderComponent for Application {
 
         command_buffer.bind_pipeline(&compute);
 
-        let bindings = [self.image.as_ref().unwrap().binding(vk::ImageLayout::GENERAL)];
-        let write_descriptor_set = WriteDescriptorSet::default()
+        let image_bindings = [self.image.as_ref().unwrap().binding(vk::ImageLayout::GENERAL)];
+        let image_write_descriptor_set = WriteDescriptorSet::default()
             .dst_binding(0)
             .dst_array_element(0)
             .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
-            .image_info(&bindings);
+            .image_info(&image_bindings);
 
         let buffer_bindings = [self.buffer.as_ref().unwrap().binding()];
         let buffer_write_descriptor_set = WriteDescriptorSet::default()
@@ -165,10 +201,30 @@ impl RenderComponent for Application {
         command_buffer.bind_push_descriptor(
             &compute,
             0,
-            &[write_descriptor_set, buffer_write_descriptor_set]
+            &[image_write_descriptor_set, buffer_write_descriptor_set]
         );
 
-        command_buffer.dispatch(500, 500, 1 );
+        command_buffer.dispatch(500, 1, 1 );
+
+        // Render edges
+        let compute = renderer.pipeline_store().get(self.edge_pipeline.unwrap()).unwrap();
+
+        command_buffer.bind_pipeline(&compute);
+
+        let edge_buffer_bindings = [self.edge_buffer.as_ref().unwrap().binding()];
+        let edge_buffer_write_descriptor_set = WriteDescriptorSet::default()
+            .dst_binding(1)
+            .dst_array_element(0)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&edge_buffer_bindings);
+
+        command_buffer.bind_push_descriptor(
+            &compute,
+            0,
+            &[image_write_descriptor_set, edge_buffer_write_descriptor_set]
+        );
+
+        command_buffer.dispatch(500, 1, 1 );
 
         // Transition the render to a source
         renderer.transition_image(

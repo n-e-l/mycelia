@@ -16,9 +16,13 @@ impl Graph {
         for _ in 0..60 {
             nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, 0.0)});
         }
+        let mut edges = vec![];
+        for _ in 0..20 {
+            edges.push((random::<usize>() % nodes.len(), random::<usize>() % nodes.len()));
+        }
         Self {
             nodes,
-            edges: Vec::new(),
+            edges,
         }
     }
 
@@ -53,10 +57,23 @@ impl Graph {
                 if i == j { continue }
 
                 let diff = &self.nodes[j].pos - &node.pos;
-                force -= diff.normalize() * ( 0.1 / diff.length() );
+                force -= diff.normalize() * ( 0.2 / diff.length() );
             }
 
             force -= node.pos.normalize() * node.pos.length() * 90.;
+
+            // Add edge forces
+            for e in &self.edges {
+                if e.0 == i || e.1 == i {
+                    let diff = if e.0 == i {
+                        &self.nodes[e.1].pos - &node.pos
+                    } else {
+                        &self.nodes[e.0].pos - &node.pos
+                    };
+                    force += diff.normalize() * (diff.length() * 20.);
+                }
+            }
+
             force *= delta;
 
             let new_node = Node { pos: node.pos + force };
@@ -70,5 +87,9 @@ impl Graph {
         self.nodes.iter()
             .map(|n| n.pos)
             .collect::<Vec<Vec3>>()
+    }
+
+    pub fn get_edges(&self) -> &Vec<(usize, usize)> {
+        &self.edges
     }
 }
