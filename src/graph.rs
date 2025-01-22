@@ -8,22 +8,50 @@ struct Node {
 pub(crate) struct Graph {
     nodes: Vec<Node>,
     edges: Vec<(usize, usize)>,
+    repulsion: f32,
+    edge_strength: f32
 }
 
 impl Graph {
     pub fn new() -> Self {
         let mut nodes = vec![];
-        for _ in 0..60 {
-            nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, 0.0)});
+        for _ in 0..200 {
+            nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5)});
         }
         let mut edges = vec![];
-        for _ in 0..20 {
+        for _ in 0..150 {
             edges.push((random::<usize>() % nodes.len(), random::<usize>() % nodes.len()));
         }
         Self {
             nodes,
             edges,
+            repulsion: 0.2,
+            edge_strength: 20.0
         }
+    }
+
+    pub fn set_repulsion(&mut self, repulsion: f32) {
+        self.repulsion = repulsion;
+    }
+
+    pub fn set_edge_strength(&mut self, edge_strength: f32) {
+        self.edge_strength = edge_strength;
+    }
+
+    pub fn get_repulsion(&mut self) -> &mut f32 {
+        &mut self.repulsion
+    }
+
+    pub fn get_edge_strength(&mut self) -> &mut f32 {
+        &mut self.edge_strength
+    }
+
+    pub fn add_node(&mut self) {
+        self.nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, 0.0)});
+    }
+
+    pub fn add_edge(&mut self, a: usize, b: usize) {
+        self.edges.push((a, b));
     }
 
     pub fn set_count(&mut self, count: usize) {
@@ -34,15 +62,14 @@ impl Graph {
             }
         } else {
             for _ in self.nodes.len()..count {
-                self.nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, 0.0) * 0.1});
+                self.nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5) * 0.1});
             }
         }
     }
 
     pub fn reset(&mut self) {
-        for node in self.nodes.iter_mut() {
-            node.pos = Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, 0.0);
-        }
+        self.nodes.clear();
+        self.edges.clear();
     }
 
     pub fn update(&mut self) {
@@ -57,7 +84,10 @@ impl Graph {
                 if i == j { continue }
 
                 let diff = &self.nodes[j].pos - &node.pos;
-                force -= diff.normalize() * ( 0.2 / diff.length() );
+                if diff.length() <= 0.01 {
+                    continue;
+                }
+                force -= diff.normalize() * ( self.repulsion / diff.length() );
             }
 
             force -= node.pos.normalize() * node.pos.length() * 90.;
@@ -70,7 +100,10 @@ impl Graph {
                     } else {
                         &self.nodes[e.0].pos - &node.pos
                     };
-                    force += diff.normalize() * (diff.length() * 20.);
+                    if diff.length() <= 0.01 {
+                        continue;
+                    }
+                    force += diff.normalize() * diff.length() * self.edge_strength;
                 }
             }
 
@@ -78,6 +111,12 @@ impl Graph {
 
             let new_node = Node { pos: node.pos + force };
             new_nodes.push(new_node);
+        }
+
+        let rot = glam::Mat3::from_rotation_y(0.001f32);
+        for node in new_nodes.iter_mut() {
+            // Rotate positions
+            node.pos = rot * node.pos;
         }
 
         self.nodes = new_nodes;

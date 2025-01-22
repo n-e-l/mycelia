@@ -13,35 +13,70 @@ use egui::{Slider, TextWrapMode};
 use glam::{IVec4, Vec3, Vec4};
 use gpu_allocator::MemoryLocation;
 use graph::Graph;
-use crate::database::Database;
+use crate::database::{Concept, Database, Relation};
 
 mod database;
 mod graph;
 
 struct Application {
     database: Database,
-    graph: Graph,
-    concepts: Vec<String>,
+    graph: Arc<Mutex<Graph>>,
+    concepts: Vec<Concept>,
+    relations: Vec<Relation>,
     messages: Vec<String>,
     image: Option<Image>,
     buffer: Option<Buffer>,
     edge_buffer: Option<Buffer>,
     descriptorset: Option<DescriptorSetLayout>,
     pipeline: Option<PipelineKey>,
-    edge_pipeline: Option<PipelineKey>
+    edge_pipeline: Option<PipelineKey>,
 }
 
 impl Application {
+
+    async fn reload_graph(&mut self) {
+
+        // tokio::spawn(async {
+            self.concepts = self.database.get_concepts().await;
+            self.messages = self.database.get_messages().await;
+            self.relations = self.database.get_relations().await;
+            let mut lock = self.graph.lock().unwrap();
+            lock.reset();
+
+            for i in 0..self.concepts.len() {
+                lock.add_node();
+            }
+            for i in 0..self.messages.len() {
+                lock.add_node();
+            }
+            for r in &self.relations {
+                lock.add_edge(r.a, r.b);
+            }
+        // });
+    }
 
     async fn new() -> Application {
         let database = Database::new().await;
         let concepts = database.get_concepts().await;
         let messages = database.get_messages().await;
+        let relations = database.get_relations().await;
+
+        let mut graph = Graph::new();
+        for i in 0..concepts.len() {
+            graph.add_node();
+        }
+        for i in 0..messages.len() {
+            graph.add_node();
+        }
+        for r in &relations {
+            graph.add_edge(r.a, r.b);
+        }
 
         Self {
             database,
-            graph: Graph::new(),
+            graph: Arc::new(Mutex::new(graph)),
             concepts,
+            relations,
             messages,
             image: None,
             buffer: None,
@@ -64,7 +99,7 @@ impl RenderComponent for Application {
             vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST
         );
 
-        let positions = 1024;
+        let positions = 1024 * 4;
         let buffer = Buffer::new(
             &renderer.device,
             &mut renderer.allocator,
@@ -73,7 +108,7 @@ impl RenderComponent for Application {
             vk::BufferUsageFlags::STORAGE_BUFFER
         );
 
-        let edges = 1024;
+        let edges = 1024 * 4;
         let edge_buffer = Buffer::new(
             &renderer.device,
             &mut renderer.allocator,
@@ -139,9 +174,10 @@ impl RenderComponent for Application {
 
     fn render(&mut self, renderer: &mut Renderer, command_buffer: &mut CommandBuffer, swapchain_image: &vk::Image, _: &vk::ImageView) {
 
-        self.graph.update();
-        let positions = self.graph.get_positions();
-        let edges = self.graph.get_edges().iter().map(
+        let mut lock = self.graph.lock().unwrap();
+        lock.update();
+        let positions = lock.get_positions();
+        let edges = lock.get_edges().iter().map(
             |p| (positions[p.0], positions[p.1])
         ).collect::<Vec<(Vec3, Vec3)>>();
 
@@ -332,20 +368,22 @@ impl RenderComponent for Application {
 impl GuiComponent for Application {
     fn gui(&mut self, context: &egui::Context) {
 
-        egui::Window::new("Nodes")
+        egui::Window::new("Database")
             .resizable(true)
             .title_bar(true)
             .show(context, |ui| unsafe {
-                if ui.button("Reset").clicked() {
-                    self.graph.reset();
-                }
+                let mut lock = self.graph.lock().unwrap();
+                ui.add(
+                    Slider::new(lock.get_edge_strength(), 0.0..=300.0)
+                );
+                ui.add(
+                Slider::new(lock.get_repulsion(), 0.0..=1.0)
+                );
 
-                static mut COUNT: usize = 0;
-                if ui.add(Slider::new(&mut COUNT, 0..=100).text("count")).changed() {
-                    self.graph.set_count(COUNT);
-                }
-            }
-            );
+                // if ui.button("Reload").clicked() {
+                //     self.reload_graph();
+                // }
+            });
 
         egui::Window::new("Messages")
             .resizable(true)
@@ -445,7 +483,7 @@ impl GuiComponent for Application {
                                     ui.label(row_index.to_string());
                                 });
                                 row.col(|ui| {
-                                    ui.label(self.concepts[row_index].to_string());
+                                    ui.label(self.concepts[row_index].name.to_string());
                                 });
                             });
                         }
