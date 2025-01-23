@@ -1,8 +1,8 @@
 use glam::Vec3;
 use rand::random;
 
-struct Node {
-    pos: Vec3
+pub struct Node {
+    pub pos: Vec3
 }
 
 pub(crate) struct Graph {
@@ -113,13 +113,11 @@ impl Graph {
             new_nodes.push(new_node);
         }
 
-        let rot = glam::Mat3::from_rotation_y(0.001f32);
-        for node in new_nodes.iter_mut() {
-            // Rotate positions
-            node.pos = rot * node.pos;
-        }
-
         self.nodes = new_nodes;
+    }
+
+    pub fn get_nodes_mut(&mut self) -> &mut Vec<Node> {
+        &mut self.nodes
     }
 
     pub fn get_positions(&self) -> Vec<Vec3> {

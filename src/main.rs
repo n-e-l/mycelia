@@ -368,6 +368,17 @@ impl RenderComponent for Application {
 impl GuiComponent for Application {
     fn gui(&mut self, context: &egui::Context) {
 
+        context.input(|x| {
+
+            if x.pointer.button_down(egui::PointerButton::Primary) {
+                let rot_x = glam::Mat3::from_rotation_y(-x.pointer.delta().x / 60.0);
+                let rot_y = glam::Mat3::from_rotation_x(-x.pointer.delta().y / 60.0);
+                self.graph.lock().unwrap().get_nodes_mut().iter_mut().for_each(|node| {
+                    node.pos = rot_x * rot_y * node.pos;
+                })
+            }
+        });
+
         egui::Window::new("Database")
             .resizable(true)
             .title_bar(true)
