@@ -44,15 +44,15 @@ impl GraphRenderer {
         ivert_mem[0] = IVec4::new(positions.len() as i32, 0, 0, 0);
         let (_, vert_mem, _) = unsafe { self.buffer.as_mut().unwrap().mapped().align_to_mut::<Vec4>() };
         for i in 0..positions.len() {
-            vert_mem[i+1] = Vec4::new(positions[i].x, positions[i].y, positions[i].z, 0.0);
+            vert_mem[i+1] = Vec4::new(positions[i].x, positions[i].y, positions[i].z, 1.0);
         }
 
         let (_, iedge_mem, _) = unsafe { self.edge_buffer.as_mut().unwrap().mapped().align_to_mut::<IVec4>() };
         iedge_mem[0] = IVec4::new(edges.len() as i32, 0, 0, 0);
         let (_, edge_mem, _) = unsafe { self.edge_buffer.as_mut().unwrap().mapped().align_to_mut::<Vec4>() };
         for i in 0..edges.len() {
-            edge_mem[i*2+1] = Vec4::new(edges[i].0.x, edges[i].0.y, edges[i].0.z, 0.0);
-            edge_mem[i*2+2] = Vec4::new(edges[i].1.x, edges[i].1.y, edges[i].1.z, 0.0);
+            edge_mem[i*2+1] = Vec4::new(edges[i].0.x, edges[i].0.y, edges[i].0.z, 1.0);
+            edge_mem[i*2+2] = Vec4::new(edges[i].1.x, edges[i].1.y, edges[i].1.z, 1.0);
         }
 
     }
@@ -176,8 +176,14 @@ impl RenderComponent for GraphRenderer {
         // Render
         let compute = renderer.pipeline_store().get(self.pipeline.unwrap()).unwrap();
 
+        // Transform
+        let width = 1600.;
+        let height = 900.;
+        let aspect_ratio = width / height;
+        let scale = Mat4::from_scale(Vec3::new(1. ,aspect_ratio, 1.));
+        let projection = Mat4::orthographic_rh_gl(0., width * 2., 0., height * 2., -1., 1.).inverse();
         let push_constants = PushConstants {
-            transform: Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0)),
+            transform: projection * scale,
         };
 
         command_buffer.bind_pipeline(&compute);
@@ -227,6 +233,13 @@ impl RenderComponent for GraphRenderer {
             &compute,
             0,
             &[image_write_descriptor_set, edge_buffer_write_descriptor_set]
+        );
+
+        command_buffer.push_constants(
+            &compute,
+            ShaderStageFlags::COMPUTE,
+            0,
+            bytemuck::bytes_of(&push_constants)
         );
 
         command_buffer.dispatch(500, 1, 1 );

@@ -19,14 +19,9 @@ vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d )
 }
 
 void circle( vec2 pos, float r ) {
-    ivec2 screenSize = imageSize( image );
-    float aspect = screenSize.x / float(screenSize.y);
-    pos.x /= aspect;
-    pos += vec2(.5);
-    ivec2 p = ivec2(pos * screenSize);
-
+    ivec2 p = ivec2(pos);
     for( float a = 0.0f; a < 2 * 3.14159f; a += 2 * 3.14159f / 190.0f ) {
-        imageStore(image, p + ivec2(cos(a) * r * screenSize.x, sin(a) * aspect * r * screenSize.y), vec4(1));
+        imageStore(image, p + ivec2(cos(a) * r, sin(a) * r), vec4(1));
     }
 }
 
@@ -43,5 +38,5 @@ void main()
     int id = p.x;
 
     vec4 pos = constants.transform * positions.pos[id];
-    circle( pos.xy, .01f);
+    circle( pos.xy, 10.01f);
 }
