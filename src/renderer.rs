@@ -1,10 +1,11 @@
 use ash::vk;
-use ash::vk::{DeviceSize, WriteDescriptorSet};
+use ash::vk::{DeviceSize, PushConstantRange, ShaderStageFlags, WriteDescriptorSet};
+use bytemuck::{Pod, Zeroable};
 use cen::graphics::pipeline_store::{PipelineConfig, PipelineKey};
 use cen::graphics::Renderer;
 use cen::graphics::renderer::RenderComponent;
 use cen::vulkan::{Buffer, CommandBuffer, DescriptorSetLayout, Image};
-use glam::{IVec4, Vec3, Vec4};
+use glam::{IVec4, Mat4, Vec3, Vec4};
 use gpu_allocator::MemoryLocation;
 use crate::Application;
 
@@ -15,6 +16,14 @@ pub struct GraphRenderer {
     descriptorset: Option<DescriptorSetLayout>,
     pipeline: Option<PipelineKey>,
     edge_pipeline: Option<PipelineKey>,
+}
+
+#[derive(Pod, Zeroable)]
+#[repr(C)]
+#[derive(Copy)]
+#[derive(Clone)]
+struct PushConstants {
+    transform: Mat4
 }
 
 impl GraphRenderer {
@@ -106,13 +115,20 @@ impl RenderComponent for GraphRenderer {
             layout_bindings
         );
 
+        let push_constant_range = PushConstantRange::default()
+            .offset(0)
+            .stage_flags(vk::ShaderStageFlags::COMPUTE)
+            .size(size_of::<PushConstants>() as u32);
+
         // Pipeline
         let pipeline = renderer.pipeline_store().insert(PipelineConfig {
             shader_path: "shaders/graph.comp".into(),
             descriptor_set_layouts: vec![
                 descriptorset.clone(),
             ],
-            push_constant_ranges: vec![],
+            push_constant_ranges: vec![
+                push_constant_range
+            ],
             macros: Default::default(),
         }).expect("Failed to create pipeline");
 
@@ -122,7 +138,9 @@ impl RenderComponent for GraphRenderer {
             descriptor_set_layouts: vec![
                 descriptorset.clone(),
             ],
-            push_constant_ranges: vec![],
+            push_constant_ranges: vec![
+                push_constant_range.clone()
+            ],
             macros: Default::default(),
         }).expect("Failed to create pipeline");
 
@@ -158,6 +176,10 @@ impl RenderComponent for GraphRenderer {
         // Render
         let compute = renderer.pipeline_store().get(self.pipeline.unwrap()).unwrap();
 
+        let push_constants = PushConstants {
+            transform: Mat4::from_scale(Vec3::new(1.0, 1.0, 1.0)),
+        };
+
         command_buffer.bind_pipeline(&compute);
 
         let image_bindings = [self.image.as_ref().unwrap().binding(vk::ImageLayout::GENERAL)];
@@ -178,6 +200,13 @@ impl RenderComponent for GraphRenderer {
             &compute,
             0,
             &[image_write_descriptor_set, buffer_write_descriptor_set]
+        );
+
+        command_buffer.push_constants(
+            &compute,
+            ShaderStageFlags::COMPUTE,
+            0,
+            bytemuck::bytes_of(&push_constants)
         );
 
         command_buffer.dispatch(500, 1, 1 );

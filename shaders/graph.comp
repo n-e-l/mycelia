@@ -8,6 +8,11 @@ layout(std430, binding = 1 ) buffer Locations {
     vec4 pos[];
 } positions;
 
+layout( push_constant ) uniform PushConstants
+{
+    mat4 transform;
+} constants;
+
 vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d )
 {
     return a + b*cos( 6.28318*(c*t+d) );
@@ -37,9 +42,6 @@ void main()
     if( p.x >= positions.len || p.y > 1 ) return;
     int id = p.x;
 
-    vec2 pos = vec2( float( p.x ) / float( screenSize.x ), float( p.y ) / float( screenSize.y ) ) - 0.5f;
-
-    float t = .1f + 0.5f * length( pos );
-    vec3 color = palette( t, vec3( 0.5, 0.5, 0.5 ), vec3( 0.5, 0.5, 0.5 ), vec3( 2.0, 1.0, 0.0 ), vec3( 0.5, 0.20, 0.25 ) );
-    circle( positions.pos[id].xy, .01f);
+    vec4 pos = constants.transform * positions.pos[id];
+    circle( pos.xy, .01f);
 }
