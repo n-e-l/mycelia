@@ -16,6 +16,7 @@ pub struct GraphRenderer {
     descriptorset: Option<DescriptorSetLayout>,
     pipeline: Option<PipelineKey>,
     edge_pipeline: Option<PipelineKey>,
+    transform: Option<Mat4>,
 }
 
 #[derive(Pod, Zeroable)]
@@ -35,10 +36,15 @@ impl GraphRenderer {
             descriptorset: None,
             pipeline: None,
             edge_pipeline: None,
+            transform: None,
         }
     }
 
-    pub fn update_graph(&mut self, positions: Vec<Vec3>, edges: Vec<(Vec3, Vec3)>) {
+    pub fn transform(&mut self, transform: Mat4) {
+        self.transform = Some(transform);
+    }
+
+    pub fn graph_data(&mut self, positions: Vec<Vec3>, edges: Vec<(Vec3, Vec3)>) {
 
         let (_, ivert_mem, _) = unsafe { self.buffer.as_mut().unwrap().mapped().align_to_mut::<IVec4>() };
         ivert_mem[0] = IVec4::new(positions.len() as i32, 0, 0, 0);
@@ -54,7 +60,6 @@ impl GraphRenderer {
             edge_mem[i*2+1] = Vec4::new(edges[i].0.x, edges[i].0.y, edges[i].0.z, 1.0);
             edge_mem[i*2+2] = Vec4::new(edges[i].1.x, edges[i].1.y, edges[i].1.z, 1.0);
         }
-
     }
 }
 
@@ -176,14 +181,13 @@ impl RenderComponent for GraphRenderer {
         // Render
         let compute = renderer.pipeline_store().get(self.pipeline.unwrap()).unwrap();
 
-        // Transform
-        let width = 1600.;
-        let height = 900.;
-        let aspect_ratio = width / height;
-        let scale = Mat4::from_scale(Vec3::new(1. ,aspect_ratio, 1.));
-        let projection = Mat4::orthographic_rh_gl(0., width * 2., 0., height * 2., -1., 1.).inverse();
-        let push_constants = PushConstants {
-            transform: projection * scale,
+        // Create push constant
+        let push_constants = if let Some(transform) = self.transform {
+            PushConstants {
+                transform
+            }
+        } else {
+            panic!("No transform provided");
         };
 
         command_buffer.bind_pipeline(&compute);

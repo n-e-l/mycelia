@@ -1,3 +1,4 @@
+use std::ops::Mul;
 use std::sync::{Arc, Mutex};
 use ash::vk;
 use ash::vk::{DeviceSize, WriteDescriptorSet};
@@ -9,8 +10,8 @@ use cen::graphics::Renderer;
 use cen::graphics::renderer::RenderComponent;
 use cen::vulkan::{Buffer, CommandBuffer, DescriptorSetLayout, Image};
 use dotenv::dotenv;
-use egui::{Slider, TextWrapMode};
-use glam::{IVec4, Vec3, Vec4};
+use egui::{Checkbox, Slider, TextWrapMode};
+use glam::{IVec4, Mat4, Vec3, Vec4};
 use gpu_allocator::MemoryLocation;
 use graph::Graph;
 use crate::database::{Concept, Database, Relation};
@@ -27,6 +28,10 @@ struct Application {
     concepts: Vec<Concept>,
     relations: Vec<Relation>,
     messages: Vec<String>,
+    view_transform: Mat4,
+    screen_transform_ortho: Mat4,
+    screen_transform_pers: Mat4,
+    perspective_camera: bool,
 }
 
 impl Application {
@@ -70,6 +75,23 @@ impl Application {
             graph.add_edge(r.a, r.b);
         }
 
+        // Transform
+        let width = 1600.;
+        let height = 900.;
+        let aspect_ratio = width / height;
+
+        // ortho
+        let scale = Mat4::from_scale(Vec3::new(1. ,aspect_ratio, 1.));
+        let projection_ortho = Mat4::orthographic_rh_gl(0., width * 2., 0., height * 2., -1., 1.).inverse();
+        let screen_transform_ortho = projection_ortho * scale;
+
+        // pers
+        let translate = Mat4::from_translation(Vec3::new(0., 0., 1.2));
+        let screen_translate = Mat4::from_translation(Vec3::new(width, height, 1.));
+        let scale_pers = Mat4::from_scale(Vec3::new(width, height, 1.));
+        let projection = Mat4::perspective_rh(1.0, aspect_ratio, 0.01, 100.);
+        let screen_transform_pers = screen_translate * scale_pers * projection * translate;
+
         Self {
             database,
             graph: Arc::new(Mutex::new(graph)),
@@ -77,6 +99,10 @@ impl Application {
             relations,
             messages,
             graph_renderer: graph_renderer.clone(),
+            screen_transform_ortho,
+            screen_transform_pers,
+            view_transform: Mat4::from_scale(Vec3::new(1., 1., 1.)),
+            perspective_camera: true,
         }
     }
 }
@@ -84,26 +110,26 @@ impl Application {
 impl GuiComponent for Application {
     fn gui(&mut self, context: &egui::Context) {
 
-        // Todo: Move to an update call
-        let mut lock = self.graph.lock().unwrap();
-        lock.update();
-        let positions = lock.get_positions();
-        let edges = lock.get_edges().iter().map(
-            |p| (positions[p.0], positions[p.1])
-        ).collect::<Vec<(Vec3, Vec3)>>();
-        self.graph_renderer.lock().unwrap().update_graph(positions, edges);
-
         // Gui code
         context.input(|x| {
 
             if x.pointer.button_down(egui::PointerButton::Primary) {
-                let rot_x = glam::Mat3::from_rotation_y(x.pointer.delta().x * 0.5 / 60.0);
-                let rot_y = glam::Mat3::from_rotation_x(-x.pointer.delta().y * 0.5 / 60.0);
-                lock.get_nodes_mut().iter_mut().for_each(|node| {
-                    node.pos = rot_x * rot_y * node.pos;
-                })
+                let rot_x = glam::Mat4::from_rotation_y(x.pointer.delta().x * 0.5 / 60.0);
+                let rot_y = glam::Mat4::from_rotation_x(-x.pointer.delta().y * 0.5 / 60.0);
+                self.view_transform = rot_x * rot_y * self.view_transform;
             }
         });
+
+        // Todo: Move to an update call
+        // Update graph data
+        let mut lock = self.graph.lock().unwrap();
+        lock.update();
+
+        let positions = lock.get_positions();
+        let edges = lock.get_edges().iter().map(
+            |p| (positions[p.0], positions[p.1])
+        ).collect::<Vec<(Vec3, Vec3)>>();
+        self.graph_renderer.lock().unwrap().graph_data(positions, edges);
 
         egui::Window::new("Database")
             .resizable(true)
@@ -115,6 +141,14 @@ impl GuiComponent for Application {
                 ui.add(
                 Slider::new(lock.get_repulsion(), 0.0..=1.0)
                 );
+
+                ui.add(Checkbox::new(&mut self.perspective_camera, "Use perspective camera"));
+
+                if self.perspective_camera {
+                    self.graph_renderer.lock().unwrap().transform(self.screen_transform_pers * self.view_transform);
+                } else {
+                    self.graph_renderer.lock().unwrap().transform(self.screen_transform_ortho * self.view_transform);
+                }
             });
 
         egui::Window::new("Messages")
