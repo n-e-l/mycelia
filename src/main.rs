@@ -131,15 +131,21 @@ impl GuiComponent for Application {
         ).collect::<Vec<(Vec3, Vec3)>>();
         self.graph_renderer.lock().unwrap().graph_data(positions, edges);
 
-        egui::Window::new("Database")
+        egui::Window::new("Nodes")
             .resizable(true)
             .title_bar(true)
             .show(context, |ui| unsafe {
+                ui.label("Edge attraction");
                 ui.add(
                     Slider::new(lock.get_edge_strength(), 0.0..=300.0)
                 );
+                ui.label("Repulsion");
                 ui.add(
-                Slider::new(lock.get_repulsion(), 0.0..=1.0)
+                    Slider::new(lock.get_repulsion(), 0.0..=1.0)
+                );
+                ui.label("Center attraction");
+                ui.add(
+                    Slider::new(lock.get_center_attraction_mut(), 0.0..=300.0)
                 );
 
                 ui.add(Checkbox::new(&mut self.perspective_camera, "Use perspective camera"));

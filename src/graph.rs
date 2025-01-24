@@ -9,24 +9,26 @@ pub(crate) struct Graph {
     nodes: Vec<Node>,
     edges: Vec<(usize, usize)>,
     repulsion: f32,
+    center_attraction: f32,
     edge_strength: f32
 }
 
 impl Graph {
     pub fn new() -> Self {
         let mut nodes = vec![];
-        for _ in 0..200 {
+        for _ in 0..600 {
             nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5)});
         }
         let mut edges = vec![];
-        for _ in 0..150 {
+        for _ in 0..450 {
             edges.push((random::<usize>() % nodes.len(), random::<usize>() % nodes.len()));
         }
         Self {
             nodes,
             edges,
             repulsion: 0.2,
-            edge_strength: 20.0
+            edge_strength: 20.0,
+            center_attraction: 90.0
         }
     }
 
@@ -40,6 +42,10 @@ impl Graph {
 
     pub fn get_repulsion(&mut self) -> &mut f32 {
         &mut self.repulsion
+    }
+
+    pub fn get_center_attraction_mut(&mut self) -> &mut f32 {
+        &mut self.center_attraction
     }
 
     pub fn get_edge_strength(&mut self) -> &mut f32 {
@@ -80,6 +86,7 @@ impl Graph {
             let node = &self.nodes[i];
 
             let mut force: Vec3 = Vec3 { x: 0.0, y: 0.0, z: 0.0 };
+
             for j in 0..self.nodes.len() {
                 if i == j { continue }
 
@@ -90,7 +97,7 @@ impl Graph {
                 force -= diff.normalize() * ( self.repulsion / diff.length() );
             }
 
-            force -= node.pos.normalize() * node.pos.length() * 90.;
+            force -= node.pos.normalize() * node.pos.length() * self.center_attraction;
 
             // Add edge forces
             for e in &self.edges {
