@@ -16,19 +16,64 @@ pub(crate) struct Graph {
 impl Graph {
     pub fn new() -> Self {
         let mut nodes = vec![];
-        for _ in 0..200 {
-            nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5)});
-        }
         let mut edges = vec![];
-        for _ in 0..150 {
-            edges.push((random::<usize>() % nodes.len(), random::<usize>() % nodes.len()));
-        }
+
         Self {
             nodes,
             edges,
             repulsion: 0.2,
             edge_strength: 20.0,
             center_attraction: 90.0
+        }
+    }
+
+    pub fn randomize(&mut self) {
+        self.nodes.clear();
+        self.edges.clear();
+
+        for _ in 0..200 {
+            self.nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5)});
+        }
+
+        for _ in 0..150 {
+            self.edges.push((random::<usize>() % self.nodes.len(), random::<usize>() % self.nodes.len()));
+        }
+
+        for i in (0..self.nodes.len()).rev() {
+            let mut has_edge = false;
+            for e in self.edges.iter() {
+                if e.0 == i || e.1 == i {
+                    println!("Node {} has edge", i);
+                    has_edge = true;
+                    break;
+                }
+            }
+            if !has_edge {
+                println!("Delete node {}", i);
+                self.delete_node(i);
+            }
+        }
+    }
+
+    pub fn delete_node(&mut self, id: usize) {
+        self.nodes.remove(id);
+
+        let mut rem_edges: Vec<usize> = vec![];
+        for (edge_id, edge) in self.edges.iter_mut().enumerate() {
+            if edge.0 == id || edge.1 == id {
+                rem_edges.push(edge_id);
+            }
+            if edge.0 > id {
+                edge.0 = edge.0 - 1;
+            }
+            if edge.1 > id {
+                edge.1 = edge.1 - 1;
+            }
+        }
+
+        for e in rem_edges.iter().rev() {
+            println!("Delete edge {}", e);
+            self.edges.remove(*e);
         }
     }
 

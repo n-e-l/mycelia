@@ -70,6 +70,7 @@ impl Application {
         for r in &relations {
             graph.add_edge(r.a, r.b);
         }
+        graph.randomize();
 
         // Transform
         let width = 1600.;
@@ -119,6 +120,11 @@ impl Application {
 impl GuiComponent for Application {
     fn gui(&mut self, context: &egui::Context) {
 
+        // Todo: Move to an update call
+        // Update graph data
+        let mut lock = self.graph.lock().unwrap();
+        lock.update();
+
         // Gui code
         context.input(|x| {
 
@@ -128,48 +134,52 @@ impl GuiComponent for Application {
                 self.view_transform = rot_x * rot_y * self.view_transform;
             }
 
+            if x.key_pressed(egui::Key::Backspace) {
+                if let Some(node) = self.selected_node.take() {
+                    lock.delete_node(node);
+                }
+            }
+
             if x.pointer.button_pressed(egui::PointerButton::Primary) {
-                let p = x.pointer.press_origin().unwrap() * 2.;
-                let mat = self.screen_transform_pers * self.view_transform;
-                let mut wp = mat.inverse() * Vec4::new(p.x, p.y, 0., 1.);
-                wp = wp / wp.w;
-                let mut wp_f = mat.inverse() * Vec4::new(p.x, p.y, 10., 1.);
-                wp_f = wp_f / wp_f.w;
-                let mut dir = (wp_f - wp).xyz().normalize();
-                // println!("wp {:?}", wp);
-                // println!("wpf {:?}", wp_f);
-                // println!("dir {:?}", dir);
+                if let Some(mut p) = x.pointer.press_origin() {
+                    p = p * 2.;
 
-                // Do ray marching
-                let mut t = 0.0;
-                for _ in 0..100 {
-                    let rp = wp.xyz() + dir * t;
-                    let near = self.graph.lock().unwrap().get_nodes_mut().iter().enumerate()
-                        .min_by_key(|&(i, n)| {
-                            OrderedFloat((n.pos - rp).length() - 0.01)
-                        })
-                        .map(|(i, n)| {
-                            (i, (n.pos - rp).length() - 0.01)
-                        }).unwrap();
+                    let mat = self.screen_transform_pers * self.view_transform;
+                    let mut wp = mat.inverse() * Vec4::new(p.x, p.y, 0., 1.);
+                    wp = wp / wp.w;
+                    let mut wp_f = mat.inverse() * Vec4::new(p.x, p.y, 10., 1.);
+                    wp_f = wp_f / wp_f.w;
+                    let mut dir = (wp_f - wp).xyz().normalize();
+                    // println!("wp {:?}", wp);
+                    // println!("wpf {:?}", wp_f);
+                    // println!("dir {:?}", dir);
 
-                    t += near.1;
+                    // Do ray marching
+                    let mut t = 0.0;
+                    for _ in 0..100 {
+                        let rp = wp.xyz() + dir * t;
+                        let near = lock.get_nodes_mut().iter().enumerate()
+                            .min_by_key(|&(i, n)| {
+                                OrderedFloat((n.pos - rp).length() - 0.01)
+                            })
+                            .map(|(i, n)| {
+                                (i, (n.pos - rp).length() - 0.01)
+                            }).unwrap();
 
-                    if near.1 < 0.0001 {
-                        self.selected_node = Some(near.0);
-                        break;
-                    }
+                        t += near.1;
 
-                    if near.1 > 1000. {
-                        break;
+                        if near.1 < 0.0001 {
+                            self.selected_node = Some(near.0);
+                            break;
+                        }
+
+                        if near.1 > 1000. {
+                            break;
+                        }
                     }
                 }
             }
         });
-
-        // Todo: Move to an update call
-        // Update graph data
-        let mut lock = self.graph.lock().unwrap();
-        lock.update();
 
         let mut positions = lock.get_positions().iter().map(
             |p| {
@@ -215,6 +225,10 @@ impl GuiComponent for Application {
                     self.graph_renderer.lock().unwrap().transform(self.screen_transform_pers * self.view_transform);
                 } else {
                     self.graph_renderer.lock().unwrap().transform(self.screen_transform_ortho * self.view_transform);
+                }
+
+                if ui.button("Randomize").clicked() {
+                    lock.randomize();
                 }
             });
 
