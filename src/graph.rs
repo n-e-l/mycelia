@@ -16,11 +16,11 @@ pub(crate) struct Graph {
 impl Graph {
     pub fn new() -> Self {
         let mut nodes = vec![];
-        for _ in 0..600 {
+        for _ in 0..200 {
             nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5)});
         }
         let mut edges = vec![];
-        for _ in 0..450 {
+        for _ in 0..150 {
             edges.push((random::<usize>() % nodes.len(), random::<usize>() % nodes.len()));
         }
         Self {

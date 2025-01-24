@@ -1,21 +1,16 @@
 use std::ops::Mul;
 use std::sync::{Arc, Mutex};
-use ash::vk;
-use ash::vk::{DeviceSize, WriteDescriptorSet};
 use cen::app::App;
 use cen::app::app::AppConfig;
 use cen::app::gui::GuiComponent;
-use cen::graphics::pipeline_store::{PipelineConfig, PipelineKey};
-use cen::graphics::Renderer;
 use cen::graphics::renderer::RenderComponent;
-use cen::vulkan::{Buffer, CommandBuffer, DescriptorSetLayout, Image};
 use dotenv::dotenv;
 use egui::{Checkbox, Slider, TextWrapMode};
-use glam::{IVec4, Mat4, Vec3, Vec4};
-use gpu_allocator::MemoryLocation;
+use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
+use ordered_float::OrderedFloat;
 use graph::Graph;
 use crate::database::{Concept, Database, Relation};
-use crate::renderer::GraphRenderer;
+use crate::renderer::{GraphRenderer, RenderNode};
 
 mod database;
 mod graph;
@@ -32,6 +27,7 @@ struct Application {
     screen_transform_ortho: Mat4,
     screen_transform_pers: Mat4,
     perspective_camera: bool,
+    selected_node: Option<usize>,
 }
 
 impl Application {
@@ -45,10 +41,10 @@ impl Application {
             let mut lock = self.graph.lock().unwrap();
             lock.reset();
 
-            for i in 0..self.concepts.len() {
+            for _ in 0..self.concepts.len() {
                 lock.add_node();
             }
-            for i in 0..self.messages.len() {
+            for _ in 0..self.messages.len() {
                 lock.add_node();
             }
             for r in &self.relations {
@@ -65,10 +61,10 @@ impl Application {
         let relations = database.get_relations().await;
 
         let mut graph = Graph::new();
-        for i in 0..concepts.len() {
+        for _ in 0..concepts.len() {
             graph.add_node();
         }
-        for i in 0..messages.len() {
+        for _ in 0..messages.len() {
             graph.add_node();
         }
         for r in &relations {
@@ -89,8 +85,20 @@ impl Application {
         let translate = Mat4::from_translation(Vec3::new(0., 0., 1.2));
         let screen_translate = Mat4::from_translation(Vec3::new(width, height, 1.));
         let scale_pers = Mat4::from_scale(Vec3::new(width, height, 1.));
-        let projection = Mat4::perspective_rh(1.0, aspect_ratio, 0.01, 100.);
+        let projection = Mat4::perspective_rh(1.0, aspect_ratio, 0.01, 10.);
         let screen_transform_pers = screen_translate * scale_pers * projection * translate;
+
+        let mut p1 = screen_transform_pers * Vec4::new(1., 1., 0., 1.);
+        p1 = p1 / p1.w;
+        println!("p1 {}", p1);
+
+        let mut p0 = screen_transform_pers * Vec4::new(0., 0., 0., 1.);
+        p0 = p0 / p0.w;
+        println!("p0 {}", p0);
+
+        let mut pm1 = screen_transform_pers * Vec4::new(-1., -1., 0., 1.);
+        pm1 = pm1 / pm1.w;
+        println!("pm1 {}", pm1);
 
         Self {
             database,
@@ -103,6 +111,7 @@ impl Application {
             screen_transform_pers,
             view_transform: Mat4::from_scale(Vec3::new(1., 1., 1.)),
             perspective_camera: true,
+            selected_node: None,
         }
     }
 }
@@ -118,6 +127,43 @@ impl GuiComponent for Application {
                 let rot_y = glam::Mat4::from_rotation_x(-x.pointer.delta().y * 0.5 / 60.0);
                 self.view_transform = rot_x * rot_y * self.view_transform;
             }
+
+            if x.pointer.button_pressed(egui::PointerButton::Primary) {
+                let p = x.pointer.press_origin().unwrap() * 2.;
+                let mat = self.screen_transform_pers * self.view_transform;
+                let mut wp = mat.inverse() * Vec4::new(p.x, p.y, 0., 1.);
+                wp = wp / wp.w;
+                let mut wp_f = mat.inverse() * Vec4::new(p.x, p.y, 10., 1.);
+                wp_f = wp_f / wp_f.w;
+                let mut dir = (wp_f - wp).xyz().normalize();
+                // println!("wp {:?}", wp);
+                // println!("wpf {:?}", wp_f);
+                // println!("dir {:?}", dir);
+
+                // Do ray marching
+                let mut t = 0.0;
+                for _ in 0..100 {
+                    let rp = wp.xyz() + dir * t;
+                    let near = self.graph.lock().unwrap().get_nodes_mut().iter().enumerate()
+                        .min_by_key(|&(i, n)| {
+                            OrderedFloat((n.pos - rp).length() - 0.01)
+                        })
+                        .map(|(i, n)| {
+                            (i, (n.pos - rp).length() - 0.01)
+                        }).unwrap();
+
+                    t += near.1;
+
+                    if near.1 < 0.0001 {
+                        self.selected_node = Some(near.0);
+                        break;
+                    }
+
+                    if near.1 > 1000. {
+                        break;
+                    }
+                }
+            }
         });
 
         // Todo: Move to an update call
@@ -125,9 +171,24 @@ impl GuiComponent for Application {
         let mut lock = self.graph.lock().unwrap();
         lock.update();
 
-        let positions = lock.get_positions();
+        let mut positions = lock.get_positions().iter().map(
+            |p| {
+                RenderNode {
+                    p: *p,
+                    v: 0
+                }
+            }
+        ).collect::<Vec<RenderNode>>();
+        for i in 0..positions.len() {
+            if let Some(selection) = self.selected_node {
+                if selection == i {
+                    positions[ i ].v = 1;
+                }
+            }
+        }
+
         let edges = lock.get_edges().iter().map(
-            |p| (positions[p.0], positions[p.1])
+            |p| (positions[p.0].p, positions[p.1].p)
         ).collect::<Vec<(Vec3, Vec3)>>();
         self.graph_renderer.lock().unwrap().graph_data(positions, edges);
 
@@ -276,7 +337,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         AppConfig::default()
             .width(1600)
             .height(900)
-            .log_fps(true)
+            .log_fps(false)
             .vsync(true),
         renderer,
         Some(application.clone())

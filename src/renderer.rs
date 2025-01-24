@@ -7,7 +7,6 @@ use cen::graphics::renderer::RenderComponent;
 use cen::vulkan::{Buffer, CommandBuffer, DescriptorSetLayout, Image};
 use glam::{IVec4, Mat4, Vec3, Vec4};
 use gpu_allocator::MemoryLocation;
-use crate::Application;
 
 pub struct GraphRenderer {
     image: Option<Image>,
@@ -17,6 +16,13 @@ pub struct GraphRenderer {
     pipeline: Option<PipelineKey>,
     edge_pipeline: Option<PipelineKey>,
     transform: Option<Mat4>,
+}
+
+#[derive(Copy)]
+#[derive(Clone)]
+pub struct RenderNode {
+    pub p: Vec3,
+    pub v: u32
 }
 
 #[derive(Pod, Zeroable)]
@@ -44,13 +50,13 @@ impl GraphRenderer {
         self.transform = Some(transform);
     }
 
-    pub fn graph_data(&mut self, positions: Vec<Vec3>, edges: Vec<(Vec3, Vec3)>) {
+    pub fn graph_data(&mut self, positions: Vec<RenderNode>, edges: Vec<(Vec3, Vec3)>) {
 
         let (_, ivert_mem, _) = unsafe { self.buffer.as_mut().unwrap().mapped().align_to_mut::<IVec4>() };
         ivert_mem[0] = IVec4::new(positions.len() as i32, 0, 0, 0);
-        let (_, vert_mem, _) = unsafe { self.buffer.as_mut().unwrap().mapped().align_to_mut::<Vec4>() };
+        let (_, vert_mem, _) = unsafe { self.buffer.as_mut().unwrap().mapped().align_to_mut::<RenderNode>() };
         for i in 0..positions.len() {
-            vert_mem[i+1] = Vec4::new(positions[i].x, positions[i].y, positions[i].z, 1.0);
+            vert_mem[i+1] = positions[i];
         }
 
         let (_, iedge_mem, _) = unsafe { self.edge_buffer.as_mut().unwrap().mapped().align_to_mut::<IVec4>() };

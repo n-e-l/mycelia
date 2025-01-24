@@ -3,9 +3,14 @@
 layout ( local_size_x = 16, local_size_y = 16, local_size_z = 1 ) in;
 
 layout( binding = 0, rgba8 ) uniform image2D image;
+
+struct Node {
+    vec3 p;
+    int v;
+};
 layout(std430, binding = 1 ) buffer Locations {
     int len;
-    vec4 pos[];
+    Node nodes[];
 } positions;
 
 layout( push_constant ) uniform PushConstants
@@ -18,10 +23,10 @@ vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d )
     return a + b*cos( 6.28318*(c*t+d) );
 }
 
-void circle( vec2 pos, float r ) {
+void circle( vec2 pos, float r, vec3 color ) {
     ivec2 p = ivec2(pos);
     for( float a = 0.0f; a < 2 * 3.14159f; a += 2 * 3.14159f / 190.0f ) {
-        imageStore(image, p + ivec2(cos(a) * r, sin(a) * r), vec4(1));
+        imageStore(image, p + ivec2(cos(a) * r, sin(a) * r), vec4(color, 1));
     }
 }
 
@@ -37,8 +42,18 @@ void main()
     if( p.x >= positions.len || p.y > 1 ) return;
     int id = p.x;
 
-    vec4 pos = constants.transform * positions.pos[id];
+    vec4 pos = constants.transform * vec4( positions.nodes[id].p, 1.0);
     pos /= pos.w;
 
-    circle( pos.xy, 10.01f);
+    vec3 color = vec3(1);
+    if (positions.nodes[id].v == 1) {
+        color = vec3(0, 1, 0);
+        circle( pos.xy, 9.f, color);
+        circle( pos.xy, 8.f, color);
+        circle( pos.xy, 6.f, color);
+        circle( pos.xy, 4.f, color);
+        circle( pos.xy, 2.f, color);
+    }
+
+    circle( pos.xy, 10.01f, color);
 }
