@@ -47,9 +47,10 @@ void main()
 
     vec3 color = vec3(1);
     if (positions.nodes[id].v == 1) {
-        color = vec3(0, 1, 0);
+        color = vec3(1, 1, 0);
         circle( pos.xy, 9.f, color);
         circle( pos.xy, 8.f, color);
+        circle( pos.xy, 7.f, color);
         circle( pos.xy, 6.f, color);
         circle( pos.xy, 4.f, color);
         circle( pos.xy, 2.f, color);

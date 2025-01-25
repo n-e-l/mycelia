@@ -72,6 +72,7 @@ void main()
 
     float t = .1f + 0.5f * length( pos );
     vec3 color = palette( t, vec3( 0.9, 0.1, 0.5 ), vec3( 0.5, 0.5, 0.5 ), vec3( 2.0, 1.0, 0.0 ), vec3( 0.5, 0.20, 0.25 ) );
+    color *= .7f;
 
     vec4 p1 = constants.transform * edges.pos[id*2];
     vec4 p2 = constants.transform * edges.pos[id*2+1];

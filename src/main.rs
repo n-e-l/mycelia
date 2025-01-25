@@ -5,7 +5,7 @@ use cen::app::app::AppConfig;
 use cen::app::gui::GuiComponent;
 use cen::graphics::renderer::RenderComponent;
 use dotenv::dotenv;
-use egui::{Checkbox, Slider, TextWrapMode};
+use egui::{Align2, Checkbox, Slider, TextWrapMode, Vec2};
 use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 use ordered_float::OrderedFloat;
 use graph::Graph;
@@ -27,7 +27,7 @@ struct Application {
     screen_transform_ortho: Mat4,
     screen_transform_pers: Mat4,
     perspective_camera: bool,
-    selected_node: Option<usize>,
+    selected_nodes: Vec<usize>,
 }
 
 impl Application {
@@ -112,7 +112,7 @@ impl Application {
             screen_transform_pers,
             view_transform: Mat4::from_scale(Vec3::new(1., 1., 1.)),
             perspective_camera: true,
-            selected_node: None,
+            selected_nodes: vec![],
         }
     }
 }
@@ -125,6 +125,7 @@ impl GuiComponent for Application {
         let mut lock = self.graph.lock().unwrap();
         lock.update();
 
+
         // Gui code
         context.input(|x| {
 
@@ -135,12 +136,15 @@ impl GuiComponent for Application {
             }
 
             if x.key_pressed(egui::Key::Backspace) {
-                if let Some(node) = self.selected_node.take() {
-                    lock.delete_node(node);
+                self.selected_nodes.sort();
+                for n in self.selected_nodes.iter().rev() {
+                    lock.delete_node(*n);
                 }
+                self.selected_nodes.clear();
             }
 
             if x.pointer.button_pressed(egui::PointerButton::Primary) {
+
                 if let Some(mut p) = x.pointer.press_origin() {
                     p = p * 2.;
 
@@ -169,7 +173,16 @@ impl GuiComponent for Application {
                         t += near.1;
 
                         if near.1 < 0.0001 {
-                            self.selected_node = Some(near.0);
+                            if !x.modifiers.shift {
+                                self.selected_nodes.clear();
+                            }
+
+                            if self.selected_nodes.contains(&near.0) {
+                                let index = self.selected_nodes.iter().find(|n| **n == near.0).unwrap();
+                                self.selected_nodes.remove(*index);
+                                break;
+                            }
+                            self.selected_nodes.push(near.0);
                             break;
                         }
 
@@ -189,18 +202,57 @@ impl GuiComponent for Application {
                 }
             }
         ).collect::<Vec<RenderNode>>();
-        for i in 0..positions.len() {
-            if let Some(selection) = self.selected_node {
-                if selection == i {
-                    positions[ i ].v = 1;
-                }
-            }
+        for n in self.selected_nodes.iter() {
+            positions[*n].v = 1;
         }
 
         let edges = lock.get_edges().iter().map(
             |p| (positions[p.0].p, positions[p.1].p)
         ).collect::<Vec<(Vec3, Vec3)>>();
         self.graph_renderer.lock().unwrap().graph_data(positions, edges);
+
+        // Show selected nodes' details
+        for n in self.selected_nodes.iter() {
+            let node = &lock.get_nodes_mut()[*n];
+            let mut screen_pos = self.screen_transform_pers * self.view_transform * Vec4::new(node.pos.x, node.pos.y, node.pos.z, 1.0);
+            screen_pos = screen_pos / screen_pos.w;
+
+            egui::Window::new(format!("Node {}", n))
+                .resizable(false)
+                .title_bar(false)
+                .anchor(Align2::LEFT_BOTTOM, [screen_pos.x / 2., screen_pos.y / 2. - 900.])
+                .show(context, |ui| unsafe {
+                    ui.label(format!("{}", n));
+                });
+
+        }
+
+        // Show details on hover
+        if let Some(p) = context.pointer_latest_pos() {
+            for (id, node) in lock.get_nodes_mut().iter().enumerate() {
+                let mut screen_pos = self.screen_transform_pers * self.view_transform * Vec4::new(node.pos.x, node.pos.y, node.pos.z, 1.0);
+                screen_pos = screen_pos / screen_pos.w;
+
+                let dist = (Vec2::new(screen_pos.x, screen_pos.y) - Vec2::new(p.x, p.y) * 2.).length();
+                if dist < 15. {
+
+                    if self.selected_nodes.contains(&id) {
+                        // Already selected nodes already have their details shown
+                        continue;
+                    }
+
+                    egui::Window::new(format!("Node {}", id))
+                        .title_bar(false)
+                        .resizable(false)
+                        .anchor(Align2::LEFT_BOTTOM, [screen_pos.x / 2., screen_pos.y / 2. - 900.])
+                        .show(context, |ui| unsafe {
+                            ui.label(format!("{}", id));
+                        });
+
+                    break;
+                }
+            }
+        }
 
         egui::Window::new("Nodes")
             .resizable(true)
