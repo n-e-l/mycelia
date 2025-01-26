@@ -43,18 +43,18 @@ void main()
     int id = p.x;
 
     vec4 pos = constants.transform * vec4( positions.nodes[id].p, 1.0);
+    float d = pos.w;
     pos /= pos.w;
 
     vec3 color = vec3(1);
     if (positions.nodes[id].v == 1) {
         color = vec3(1, 1, 0);
-        circle( pos.xy, 9.f, color);
-        circle( pos.xy, 8.f, color);
-        circle( pos.xy, 7.f, color);
-        circle( pos.xy, 6.f, color);
-        circle( pos.xy, 4.f, color);
-        circle( pos.xy, 2.f, color);
+        circle( pos.xy, 1. / d * 8., color);
+        circle( pos.xy, 1. / d * 7., color);
+        circle( pos.xy, 1. / d * 6., color);
+        circle( pos.xy, 1. / d * 5., color);
+        circle( pos.xy, 1. / d * 4., color);
     }
 
-    circle( pos.xy, 10.01f, color);
+    circle( pos.xy, 1. / d * 8., color);
 }
