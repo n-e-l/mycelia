@@ -9,20 +9,14 @@ use egui::{Align2, Checkbox, Slider, TextWrapMode, Vec2};
 use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 use ordered_float::OrderedFloat;
 use graph::Graph;
-use crate::database::{Concept, Database, Relation};
 use crate::renderer::{GraphRenderer, RenderNode};
 
-mod database;
 mod graph;
 mod renderer;
 
 struct Application {
-    database: Database,
     graph_renderer: Arc<Mutex<GraphRenderer>>,
     graph: Arc<Mutex<Graph>>,
-    concepts: Vec<Concept>,
-    relations: Vec<Relation>,
-    messages: Vec<String>,
     view_transform: Mat4,
     screen_transform_ortho: Mat4,
     screen_transform_pers: Mat4,
@@ -33,43 +27,13 @@ struct Application {
 impl Application {
 
     async fn reload_graph(&mut self) {
-
-        // tokio::spawn(async {
-            self.concepts = self.database.get_concepts().await;
-            self.messages = self.database.get_messages().await;
-            self.relations = self.database.get_relations().await;
-            let mut lock = self.graph.lock().unwrap();
-            lock.reset();
-
-            for _ in 0..self.concepts.len() {
-                lock.add_node();
-            }
-            for _ in 0..self.messages.len() {
-                lock.add_node();
-            }
-            for r in &self.relations {
-                lock.add_edge(r.a, r.b);
-            }
-        // });
+        let mut lock = self.graph.lock().unwrap();
+        lock.randomize();
     }
 
     async fn new(graph_renderer: Arc<Mutex<GraphRenderer>>) -> Application {
 
-        let database = Database::new().await;
-        let concepts = database.get_concepts().await;
-        let messages = database.get_messages().await;
-        let relations = database.get_relations().await;
-
         let mut graph = Graph::new();
-        for _ in 0..concepts.len() {
-            graph.add_node();
-        }
-        for _ in 0..messages.len() {
-            graph.add_node();
-        }
-        for r in &relations {
-            graph.add_edge(r.a, r.b);
-        }
         graph.randomize();
 
         // Transform
@@ -102,11 +66,7 @@ impl Application {
         println!("pm1 {}", pm1);
 
         Self {
-            database,
             graph: Arc::new(Mutex::new(graph)),
-            concepts,
-            relations,
-            messages,
             graph_renderer: graph_renderer.clone(),
             screen_transform_ortho,
             screen_transform_pers,
@@ -178,8 +138,8 @@ impl GuiComponent for Application {
                             }
 
                             if self.selected_nodes.contains(&near.0) {
-                                let index = self.selected_nodes.iter().find(|n| **n == near.0).unwrap();
-                                self.selected_nodes.remove(*index);
+                                let (index, node) = self.selected_nodes.iter().enumerate().find(|n| *n.1 == near.0).unwrap();
+                                self.selected_nodes.remove(index);
                                 break;
                             }
                             self.selected_nodes.push(near.0);
@@ -282,113 +242,27 @@ impl GuiComponent for Application {
                 if ui.button("Randomize").clicked() {
                     lock.randomize();
                 }
+
+                if ui.button("Connect").clicked() {
+                    for n in self.selected_nodes.chunks(2) {
+                        lock.add_edge(n[0], n[1]);
+                    }
+                }
+
+                if ui.button("Remove connection").clicked() {
+                    for n in self.selected_nodes.chunks(2) {
+                        lock.delete_edge(n[0], n[1]);
+                    }
+                }
+
+                if ui.button("Add node").clicked() {
+                    if let Some(n) = self.selected_nodes.first() {
+                        lock.add_node();
+                        let id = lock.get_nodes_mut().len() - 1;
+                        lock.add_edge(*n, id);
+                    }
+                }
             });
-
-        egui::Window::new("Messages")
-            .resizable(true)
-            .title_bar(true)
-            .show(context, |ui| {
-                use egui_extras::{Column, TableBuilder};
-
-                ui.style_mut().wrap_mode = Some(TextWrapMode::Wrap);
-
-                let available_height = ui.available_height();
-                let mut table = TableBuilder::new(ui)
-                    .striped(true)
-                    .resizable(true)
-                    .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                    .column(Column::auto())
-                    .column(
-                        Column::remainder()
-                            .at_least(40.0)
-                            .clip(false)
-                            .resizable(true),
-                    )
-                    .min_scrolled_height(0.0)
-                    .max_scroll_height(available_height);
-
-                table
-                    .header(15.0, move |mut header| {
-                        header.col(|ui| {
-                            egui::Sides::new().show(
-                                ui,
-                                |ui| {
-                                    ui.strong("Row");
-                                },
-                                |ui| {
-                                },
-                            );
-                        });
-                        header.col(|ui| {
-                            ui.strong("Message");
-                        });
-                    })
-                    .body(|mut body| {
-                        for row_index in 0..self.messages.len() {
-                            body.row(30.0, |mut row| {
-                                row.col(|ui| {
-                                    ui.label(row_index.to_string());
-                                });
-                                row.col(|ui| {
-                                    ui.label(self.messages[row_index].to_string());
-                                });
-                            });
-                        }
-                    });
-            }
-            );
-
-        egui::Window::new("Concepts")
-            .resizable(true)
-            .title_bar(true)
-            .show(context, |ui| {
-                use egui_extras::{Column, TableBuilder};
-
-                let available_height = ui.available_height();
-                let mut table = TableBuilder::new(ui)
-                    .striped(true)
-                    .resizable(true)
-                    .cell_layout(egui::Layout::left_to_right(egui::Align::Center))
-                    .column(Column::auto())
-                    .column(
-                        Column::remainder()
-                            .at_least(40.0)
-                            .clip(true)
-                            .resizable(true),
-                    )
-                    .min_scrolled_height(0.0)
-                    .max_scroll_height(available_height);
-
-                table
-                    .header(15.0, move |mut header| {
-                        header.col(|ui| {
-                            egui::Sides::new().show(
-                                ui,
-                                |ui| {
-                                    ui.strong("Row");
-                                },
-                                |ui| {
-                                },
-                            );
-                        });
-                        header.col(|ui| {
-                            ui.strong("Concept");
-                        });
-                    })
-                    .body(|mut body| {
-                        for row_index in 0..self.concepts.len() {
-                            body.row(30.0, |mut row| {
-                                row.col(|ui| {
-                                    ui.label(row_index.to_string());
-                                });
-                                row.col(|ui| {
-                                    ui.label(self.concepts[row_index].name.to_string());
-                                });
-                            });
-                        }
-                });
-            }
-        );
     }
 }
 

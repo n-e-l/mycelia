@@ -31,11 +31,11 @@ impl Graph {
         self.nodes.clear();
         self.edges.clear();
 
-        for _ in 0..200 {
+        for _ in 0..20 {
             self.nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5)});
         }
 
-        for _ in 0..150 {
+        for _ in 0..18 {
             self.edges.push((random::<usize>() % self.nodes.len(), random::<usize>() % self.nodes.len()));
         }
 
@@ -51,6 +51,15 @@ impl Graph {
             if !has_edge {
                 println!("Delete node {}", i);
                 self.delete_node(i);
+            }
+        }
+    }
+
+    pub fn delete_edge(&mut self, id_a: usize, id_b: usize) {
+        for mut i in 0..self.edges.len() {
+            if ( self.edges[i].0 == id_a && self.edges[i].1 == id_b ) || ( self.edges[i].0 == id_b && self.edges[i].1 == id_a ) {
+                self.edges.remove(i);
+                i -= 1;
             }
         }
     }
@@ -98,7 +107,7 @@ impl Graph {
     }
 
     pub fn add_node(&mut self) {
-        self.nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, 0.0)});
+        self.nodes.push(Node {pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5)});
     }
 
     pub fn add_edge(&mut self, a: usize, b: usize) {
