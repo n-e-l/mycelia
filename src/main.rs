@@ -8,15 +8,15 @@ use dotenv::dotenv;
 use egui::{Align2, Checkbox, Slider, TextWrapMode, Vec2};
 use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 use ordered_float::OrderedFloat;
-use graph::Graph;
+use world::World;
 use crate::renderer::{GraphRenderer, RenderNode};
 
-mod graph;
+mod world;
 mod renderer;
 
 struct Application {
     graph_renderer: Arc<Mutex<GraphRenderer>>,
-    graph: Arc<Mutex<Graph>>,
+    graph: Arc<Mutex<World>>,
     view_transform: Mat4,
     screen_transform_ortho: Mat4,
     screen_transform_pers: Mat4,
@@ -28,13 +28,11 @@ impl Application {
 
     async fn reload_graph(&mut self) {
         let mut lock = self.graph.lock().unwrap();
-        lock.randomize();
     }
 
     async fn new(graph_renderer: Arc<Mutex<GraphRenderer>>) -> Application {
 
-        let mut graph = Graph::new();
-        graph.randomize();
+        let mut graph = World::new();
 
         // Transform
         let width = 1600.;
@@ -85,7 +83,6 @@ impl GuiComponent for Application {
         let mut lock = self.graph.lock().unwrap();
         lock.update();
 
-
         // Gui code
         context.input(|x| {
 
@@ -98,63 +95,64 @@ impl GuiComponent for Application {
             if x.key_pressed(egui::Key::Backspace) {
                 self.selected_nodes.sort();
                 for n in self.selected_nodes.iter().rev() {
-                    lock.delete_node(*n);
+                    // lock.delete_node(*n);
                 }
                 self.selected_nodes.clear();
             }
 
-            if x.pointer.button_pressed(egui::PointerButton::Primary) {
-
-                if let Some(mut p) = x.pointer.press_origin() {
-                    p = p * 2.;
-
-                    let mat = self.screen_transform_pers * self.view_transform;
-                    let mut wp = mat.inverse() * Vec4::new(p.x, p.y, 0., 1.);
-                    wp = wp / wp.w;
-                    let mut wp_f = mat.inverse() * Vec4::new(p.x, p.y, 10., 1.);
-                    wp_f = wp_f / wp_f.w;
-                    let mut dir = (wp_f - wp).xyz().normalize();
-                    // println!("wp {:?}", wp);
-                    // println!("wpf {:?}", wp_f);
-                    // println!("dir {:?}", dir);
-
-                    // Do ray marching
-                    let mut t = 0.0;
-                    for _ in 0..100 {
-                        let rp = wp.xyz() + dir * t;
-                        let near = lock.get_nodes_mut().iter().enumerate()
-                            .min_by_key(|&(i, n)| {
-                                OrderedFloat((n.pos - rp).length() - 0.01)
-                            })
-                            .map(|(i, n)| {
-                                (i, (n.pos - rp).length() - 0.01)
-                            }).unwrap();
-
-                        t += near.1;
-
-                        if near.1 < 0.0001 {
-                            if !x.modifiers.shift {
-                                self.selected_nodes.clear();
-                            }
-
-                            if self.selected_nodes.contains(&near.0) {
-                                let (index, node) = self.selected_nodes.iter().enumerate().find(|n| *n.1 == near.0).unwrap();
-                                self.selected_nodes.remove(index);
-                                break;
-                            }
-                            self.selected_nodes.push(near.0);
-                            break;
-                        }
-
-                        if near.1 > 1000. {
-                            break;
-                        }
-                    }
-                }
-            }
+            // if x.pointer.button_pressed(egui::PointerButton::Primary) {
+            //
+            //     if let Some(mut p) = x.pointer.press_origin() {
+            //         p = p * 2.;
+            //
+            //         let mat = self.screen_transform_pers * self.view_transform;
+            //         let mut wp = mat.inverse() * Vec4::new(p.x, p.y, 0., 1.);
+            //         wp = wp / wp.w;
+            //         let mut wp_f = mat.inverse() * Vec4::new(p.x, p.y, 10., 1.);
+            //         wp_f = wp_f / wp_f.w;
+            //         let mut dir = (wp_f - wp).xyz().normalize();
+            //         // println!("wp {:?}", wp);
+            //         // println!("wpf {:?}", wp_f);
+            //         // println!("dir {:?}", dir);
+            //
+            //         // Do ray marching
+            //         let mut t = 0.0;
+            //         for _ in 0..100 {
+            //             let rp = wp.xyz() + dir * t;
+            //             let near = lock.get_nodes_mut().iter().enumerate()
+            //                 .min_by_key(|&(i, n)| {
+            //                     OrderedFloat((n.pos - rp).length() - 0.01)
+            //                 })
+            //                 .map(|(i, n)| {
+            //                     (i, (n.pos - rp).length() - 0.01)
+            //                 }).unwrap();
+            //
+            //             t += near.1;
+            //
+            //             if near.1 < 0.0001 {
+            //                 if !x.modifiers.shift {
+            //                     self.selected_nodes.clear();
+            //                 }
+            //
+            //                 if self.selected_nodes.contains(&near.0) {
+            //                     let (index, node) = self.selected_nodes.iter().enumerate().find(|n| *n.1 == near.0).unwrap();
+            //                     self.selected_nodes.remove(index);
+            //                     break;
+            //                 }
+            //                 self.selected_nodes.push(near.0);
+            //                 break;
+            //             }
+            //
+            //             if near.1 > 1000. {
+            //                 break;
+            //             }
+            //         }
+            //     }
+            // }
         });
 
-        let mut positions = lock.get_positions().iter().map(
+        let (vertices, lines) = lock.get_mesh();
+        let mut positions = vertices.iter().map(
             |p| {
                 RenderNode {
                     p: *p,
@@ -162,57 +160,57 @@ impl GuiComponent for Application {
                 }
             }
         ).collect::<Vec<RenderNode>>();
-        for n in self.selected_nodes.iter() {
-            positions[*n].v = 1;
-        }
-
-        let edges = lock.get_edges().iter().map(
+        // for n in self.selected_nodes.iter() {
+        //     positions[*n].v = 1;
+        // }
+        //
+        let edges = lines.iter().map(
             |p| (positions[p.0].p, positions[p.1].p)
         ).collect::<Vec<(Vec3, Vec3)>>();
         self.graph_renderer.lock().unwrap().graph_data(positions, edges);
 
         // Show selected nodes' details
-        for n in self.selected_nodes.iter() {
-            let node = &lock.get_nodes_mut()[*n];
-            let mut screen_pos = self.screen_transform_pers * self.view_transform * Vec4::new(node.pos.x, node.pos.y, node.pos.z, 1.0);
-            screen_pos = screen_pos / screen_pos.w;
-
-            egui::Window::new(format!("Node {}", n))
-                .resizable(false)
-                .title_bar(false)
-                .anchor(Align2::LEFT_BOTTOM, [screen_pos.x / 2., screen_pos.y / 2. - 900.])
-                .show(context, |ui| unsafe {
-                    ui.label(format!("{}", n));
-                });
-
-        }
+        // for n in self.selected_nodes.iter() {
+        //     let node = &lock.get_nodes_mut()[*n];
+        //     let mut screen_pos = self.screen_transform_pers * self.view_transform * Vec4::new(node.pos.x, node.pos.y, node.pos.z, 1.0);
+        //     screen_pos = screen_pos / screen_pos.w;
+        //
+        //     egui::Window::new(format!("Node {}", n))
+        //         .resizable(false)
+        //         .title_bar(false)
+        //         .anchor(Align2::LEFT_BOTTOM, [screen_pos.x / 2., screen_pos.y / 2. - 900.])
+        //         .show(context, |ui| unsafe {
+        //             ui.label(format!("{}", n));
+        //         });
+        //
+        // }
 
         // Show details on hover
-        if let Some(p) = context.pointer_latest_pos() {
-            for (id, node) in lock.get_nodes_mut().iter().enumerate() {
-                let mut screen_pos = self.screen_transform_pers * self.view_transform * Vec4::new(node.pos.x, node.pos.y, node.pos.z, 1.0);
-                screen_pos = screen_pos / screen_pos.w;
-
-                let dist = (Vec2::new(screen_pos.x, screen_pos.y) - Vec2::new(p.x, p.y) * 2.).length();
-                if dist < 15. {
-
-                    if self.selected_nodes.contains(&id) {
-                        // Already selected nodes already have their details shown
-                        continue;
-                    }
-
-                    egui::Window::new(format!("Node {}", id))
-                        .title_bar(false)
-                        .resizable(false)
-                        .anchor(Align2::LEFT_BOTTOM, [screen_pos.x / 2., screen_pos.y / 2. - 900.])
-                        .show(context, |ui| unsafe {
-                            ui.label(format!("{}", id));
-                        });
-
-                    break;
-                }
-            }
-        }
+        // if let Some(p) = context.pointer_latest_pos() {
+        //     for (id, node) in lock.get_nodes_mut().iter().enumerate() {
+        //         let mut screen_pos = self.screen_transform_pers * self.view_transform * Vec4::new(node.pos.x, node.pos.y, node.pos.z, 1.0);
+        //         screen_pos = screen_pos / screen_pos.w;
+        //
+        //         let dist = (Vec2::new(screen_pos.x, screen_pos.y) - Vec2::new(p.x, p.y) * 2.).length();
+        //         if dist < 15. {
+        //
+        //             if self.selected_nodes.contains(&id) {
+        //                 // Already selected nodes already have their details shown
+        //                 continue;
+        //             }
+        //
+        //             egui::Window::new(format!("Node {}", id))
+        //                 .title_bar(false)
+        //                 .resizable(false)
+        //                 .anchor(Align2::LEFT_BOTTOM, [screen_pos.x / 2., screen_pos.y / 2. - 900.])
+        //                 .show(context, |ui| unsafe {
+        //                     ui.label(format!("{}", id));
+        //                 });
+        //
+        //             break;
+        //         }
+        //     }
+        // }
 
         egui::Window::new("Nodes")
             .resizable(true)
@@ -239,29 +237,29 @@ impl GuiComponent for Application {
                     self.graph_renderer.lock().unwrap().transform(self.screen_transform_ortho * self.view_transform);
                 }
 
-                if ui.button("Randomize").clicked() {
-                    lock.randomize();
-                }
+                // if ui.button("Randomize").clicked() {
+                //     lock.randomize();
+                // }
 
-                if ui.button("Connect").clicked() {
-                    for n in self.selected_nodes.chunks(2) {
-                        lock.add_edge(n[0], n[1]);
-                    }
-                }
+                // if ui.button("Connect").clicked() {
+                //     for n in self.selected_nodes.chunks(2) {
+                //         lock.add_edge(n[0], n[1]);
+                //     }
+                // }
 
-                if ui.button("Remove connection").clicked() {
-                    for n in self.selected_nodes.chunks(2) {
-                        lock.delete_edge(n[0], n[1]);
-                    }
-                }
+                // if ui.button("Remove connection").clicked() {
+                //     for n in self.selected_nodes.chunks(2) {
+                //         lock.delete_edge(n[0], n[1]);
+                //     }
+                // }
 
-                if ui.button("Add node").clicked() {
-                    if let Some(n) = self.selected_nodes.first() {
-                        lock.add_node();
-                        let id = lock.get_nodes_mut().len() - 1;
-                        lock.add_edge(*n, id);
-                    }
-                }
+                // if ui.button("Add node").clicked() {
+                //     if let Some(n) = self.selected_nodes.first() {
+                //         lock.add_node();
+                //         let id = lock.get_nodes_mut().len() - 1;
+                //         lock.add_edge(*n, id);
+                //     }
+                // }
             });
     }
 }
@@ -277,8 +275,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         AppConfig::default()
             .width(1600)
             .height(900)
-            .log_fps(false)
-            .vsync(true),
+            .log_fps(true)
+            .vsync(false),
         renderer,
         Some(application.clone())
     );
