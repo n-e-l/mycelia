@@ -1,17 +1,13 @@
-# Rel
-Relational note taking
+# Mycelia
+Graph renderer and playground.
 
-## Building
-1. Checkout this repository
-2. `cargo build --release`
-3. Create an environment file `.env` next to the executable in `target/release/`
+## Goals
+Mycelia is intended as the base for [mindspace](https://github.com/angelocarly/mindspace). A relational knowledge
+database.
 
-Example `.env` file:
-```bash
-NEO_URI=neo4j://example.org
-NEO_USERNAME=neo4j
-NEO_PASSWORD=password
-```
+Its planned features are:
+- Graph rendering and modification
+- Local graph editing
+- More fun algorithms visualization tools
 
-## Running
-```./target/release/rel```
+These might in-turn be used for the knowledge database.
