@@ -2,7 +2,7 @@ use std::ops::Index;
 use egui::Vec2;
 use glam::Vec3;
 use petgraph::Direction;
-use petgraph::graph::{DiGraph, UnGraph};
+use petgraph::graph::{DiGraph, NodeWeightsMut, UnGraph};
 use petgraph::prelude::EdgeRef;
 use rand::random;
 
@@ -10,13 +10,15 @@ use rand::random;
 #[derive(Copy)]
 #[derive(Clone)]
 pub struct Node {
-    pub pos: Vec3
+    pub pos: Vec3,
+    pub selected: bool
 }
 
 impl Node {
     pub fn new() -> Node {
         Node {
-            pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5)
+            pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5),
+            selected: false
         }
     }
 }
@@ -36,10 +38,10 @@ impl World {
             g.add_node(Node::new());
         }
 
-        for i in 0..90 {
+        for i in 0..100 {
             let id_a = g.node_indices().nth(random::<usize>() % g.node_indices().len()).unwrap();
             let id_b = g.node_indices().nth(random::<usize>() % g.node_indices().len()).unwrap();
-            g.add_edge(id_a, id_b, ());
+            g.update_edge(id_a, id_b, ());
         }
 
         Self {
@@ -72,7 +74,7 @@ impl World {
             let mut force = Vec3::new(0.0, 0.0, 0.0);
             self.graph.raw_nodes().iter().for_each(|n2| {
                 let diff = &n2.weight.pos - &n.pos;
-                if diff.length() <= 0.0001 {
+                if diff.length() <= 0.01 {
                     return;
                 }
                 force -= diff.normalize() * ( self.repulsion / diff.length() );
@@ -82,7 +84,7 @@ impl World {
             for e in self.graph.edges_directed(i, Direction::Outgoing) {
                 let diff = &self.graph.node_weight(e.target()).unwrap().pos - &n.pos;
 
-                if diff.length() <= 0.0001 {
+                if diff.length() <= 0.01 {
                     continue;
                 }
 
@@ -91,7 +93,7 @@ impl World {
             for e in self.graph.edges_directed(i, Direction::Incoming) {
                 let diff = &self.graph.node_weight(e.source()).unwrap().pos - &n.pos;
 
-                if diff.length() <= 0.0001 {
+                if diff.length() <= 0.01 {
                     continue;
                 }
 
@@ -100,7 +102,7 @@ impl World {
 
             force -= n.pos.normalize() * n.pos.length() * self.center_attraction;
 
-            let delta = 1.0 / 420.;
+            let delta = 1.0 / 4020.;
             force *= delta;
 
             forces.push(force);
@@ -111,11 +113,15 @@ impl World {
         }
     }
 
-    pub fn get_mesh(&mut self) -> (Vec<Vec3>, Vec<(usize, usize)>) {
-        let positions = self.graph.raw_nodes().iter().map(|n| n.weight.pos).collect();
+    pub fn get_mesh(&mut self) -> (Vec<Node>, Vec<(usize, usize)>) {
+        let positions = self.graph.raw_nodes().iter().map(|n| n.weight).collect::<Vec<_>>();
         let edges = self.graph.raw_edges().iter().map(|e| {
             (e.source().index(), e.target().index())
         }).collect::<Vec<(usize, usize)>>();
         (positions, edges)
+    }
+
+    pub fn nodes(&mut self) -> NodeWeightsMut<Node> {
+        self.graph.node_weights_mut()
     }
 }

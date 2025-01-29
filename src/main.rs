@@ -21,7 +21,6 @@ struct Application {
     screen_transform_ortho: Mat4,
     screen_transform_pers: Mat4,
     perspective_camera: bool,
-    selected_nodes: Vec<usize>,
 }
 
 impl Application {
@@ -70,7 +69,6 @@ impl Application {
             screen_transform_pers,
             view_transform: Mat4::from_scale(Vec3::new(1., 1., 1.)),
             perspective_camera: true,
-            selected_nodes: vec![],
         }
     }
 }
@@ -92,71 +90,55 @@ impl GuiComponent for Application {
                 self.view_transform = rot_x * rot_y * self.view_transform;
             }
 
-            if x.key_pressed(egui::Key::Backspace) {
-                self.selected_nodes.sort();
-                for n in self.selected_nodes.iter().rev() {
-                    // lock.delete_node(*n);
-                }
-                self.selected_nodes.clear();
-            }
+            if x.pointer.button_pressed(egui::PointerButton::Primary) {
 
-            // if x.pointer.button_pressed(egui::PointerButton::Primary) {
-            //
-            //     if let Some(mut p) = x.pointer.press_origin() {
-            //         p = p * 2.;
-            //
-            //         let mat = self.screen_transform_pers * self.view_transform;
-            //         let mut wp = mat.inverse() * Vec4::new(p.x, p.y, 0., 1.);
-            //         wp = wp / wp.w;
-            //         let mut wp_f = mat.inverse() * Vec4::new(p.x, p.y, 10., 1.);
-            //         wp_f = wp_f / wp_f.w;
-            //         let mut dir = (wp_f - wp).xyz().normalize();
-            //         // println!("wp {:?}", wp);
-            //         // println!("wpf {:?}", wp_f);
-            //         // println!("dir {:?}", dir);
-            //
-            //         // Do ray marching
-            //         let mut t = 0.0;
-            //         for _ in 0..100 {
-            //             let rp = wp.xyz() + dir * t;
-            //             let near = lock.get_nodes_mut().iter().enumerate()
-            //                 .min_by_key(|&(i, n)| {
-            //                     OrderedFloat((n.pos - rp).length() - 0.01)
-            //                 })
-            //                 .map(|(i, n)| {
-            //                     (i, (n.pos - rp).length() - 0.01)
-            //                 }).unwrap();
-            //
-            //             t += near.1;
-            //
-            //             if near.1 < 0.0001 {
-            //                 if !x.modifiers.shift {
-            //                     self.selected_nodes.clear();
-            //                 }
-            //
-            //                 if self.selected_nodes.contains(&near.0) {
-            //                     let (index, node) = self.selected_nodes.iter().enumerate().find(|n| *n.1 == near.0).unwrap();
-            //                     self.selected_nodes.remove(index);
-            //                     break;
-            //                 }
-            //                 self.selected_nodes.push(near.0);
-            //                 break;
-            //             }
-            //
-            //             if near.1 > 1000. {
-            //                 break;
-            //             }
-            //         }
-            //     }
-            // }
+                if let Some(mut p) = x.pointer.press_origin() {
+                    p = p * 2.;
+
+                    let mat = self.screen_transform_pers * self.view_transform;
+                    let mut wp = mat.inverse() * Vec4::new(p.x, p.y, 0., 1.);
+                    wp = wp / wp.w;
+                    let mut wp_f = mat.inverse() * Vec4::new(p.x, p.y, 10., 1.);
+                    wp_f = wp_f / wp_f.w;
+                    let mut dir = (wp_f - wp).xyz().normalize();
+                    // println!("wp {:?}", wp);
+                    // println!("wpf {:?}", wp_f);
+                    // println!("dir {:?}", dir);
+
+                    // Do ray marching
+                    let mut t = 0.0;
+                    for _ in 0..100 {
+                        let rp = wp.xyz() + dir * t;
+                        let near = lock.nodes().enumerate()
+                            .min_by_key(|(i, n)| {
+                                OrderedFloat((n.pos - rp).length() - 0.01)
+                            })
+                            .map(|(i, n)| {
+                                (i, (n.pos - rp).length() - 0.01)
+                            }).unwrap();
+
+                        t += near.1;
+
+                        if near.1 < 0.0001 {
+                            // We have a hit
+                            lock.nodes().nth( near.0 ).unwrap().selected = true;
+                            break;
+                        }
+
+                        if near.1 > 1000. {
+                            break;
+                        }
+                    }
+                }
+            }
         });
 
-        let (vertices, lines) = lock.get_mesh();
-        let mut positions = vertices.iter().map(
-            |p| {
+        let (nodes, lines) = lock.get_mesh();
+        let mut positions = nodes.iter().map(
+            |n| {
                 RenderNode {
-                    p: *p,
-                    v: 0
+                    p: n.pos,
+                    v: if n.selected { 1 } else { 0 }
                 }
             }
         ).collect::<Vec<RenderNode>>();
@@ -218,7 +200,7 @@ impl GuiComponent for Application {
             .show(context, |ui| unsafe {
                 ui.label("Edge attraction");
                 ui.add(
-                    Slider::new(lock.get_edge_strength(), 0.0..=300.0)
+                    Slider::new(lock.get_edge_strength(), 0.0..=900.0)
                 );
                 ui.label("Repulsion");
                 ui.add(
