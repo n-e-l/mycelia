@@ -2,9 +2,10 @@ use std::ops::Index;
 use egui::Vec2;
 use glam::Vec3;
 use petgraph::Direction;
-use petgraph::graph::{DiGraph, NodeWeightsMut, UnGraph};
+use petgraph::graph::{DiGraph, NodeIndex, NodeWeightsMut, UnGraph};
 use petgraph::prelude::EdgeRef;
 use rand::random;
+use crate::octree::OctreeNode;
 
 #[derive(Default)]
 #[derive(Copy)]
@@ -17,7 +18,7 @@ pub struct Node {
 impl Node {
     pub fn new() -> Node {
         Node {
-            pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5),
+            pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5) * 0.3,
             selected: false
         }
     }
@@ -27,14 +28,15 @@ pub(crate) struct World {
     repulsion: f32,
     center_attraction: f32,
     edge_strength: f32,
-    graph: DiGraph<Node, ()>
+    graph: DiGraph<Node, ()>,
+    octree: OctreeNode<NodeIndex>,
 }
 
 impl World {
     pub fn new() -> Self {
 
         let mut g = DiGraph::<Node, ()>::new();
-        for i in 0..100 {
+        for i in 0..40 {
             g.add_node(Node::new());
         }
 
@@ -44,12 +46,23 @@ impl World {
             g.update_edge(id_a, id_b, ());
         }
 
+        let mut octree = OctreeNode::<NodeIndex>::new(Vec3::new(0., 0., 0.), 0.31);
+        for i in g.node_indices() {
+            let n = g.node_weight(i).unwrap();
+            octree.insert(i, n.pos);
+        }
+
         Self {
             repulsion: 0.2,
             edge_strength: 20.0,
             center_attraction: 90.0,
-            graph: g
+            graph: g,
+            octree
         }
+    }
+
+    pub fn get_octree(&self) -> &OctreeNode<NodeIndex> {
+        &self.octree
     }
 
     pub fn get_repulsion(&mut self) -> &mut f32 {
@@ -65,6 +78,7 @@ impl World {
     }
 
     pub fn update(&mut self) {
+        return;
         let mut forces = Vec::new();
 
         for i in self.graph.node_indices() {

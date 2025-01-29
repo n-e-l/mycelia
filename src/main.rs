@@ -13,6 +13,7 @@ use crate::renderer::{GraphRenderer, RenderNode};
 
 mod world;
 mod renderer;
+mod octree;
 
 struct Application {
     graph_renderer: Arc<Mutex<GraphRenderer>>,
@@ -21,6 +22,7 @@ struct Application {
     screen_transform_ortho: Mat4,
     screen_transform_pers: Mat4,
     perspective_camera: bool,
+    octree_mesh: Vec<(Vec4, Vec4)>
 }
 
 impl Application {
@@ -44,10 +46,10 @@ impl Application {
         let screen_transform_ortho = projection_ortho * scale;
 
         // pers
-        let translate = Mat4::from_translation(Vec3::new(0., 0., 1.2));
+        let translate = Mat4::from_translation(Vec3::new(0., 0., 0.8));
         let screen_translate = Mat4::from_translation(Vec3::new(width, height, 1.));
         let scale_pers = Mat4::from_scale(Vec3::new(width, height, 1.));
-        let projection = Mat4::perspective_rh(1.0, aspect_ratio, 0.01, 10.);
+        let projection = Mat4::perspective_rh(1.2, aspect_ratio, 0.01, 10.);
         let screen_transform_pers = screen_translate * scale_pers * projection * translate;
 
         let mut p1 = screen_transform_pers * Vec4::new(1., 1., 0., 1.);
@@ -62,8 +64,12 @@ impl Application {
         pm1 = pm1 / pm1.w;
         println!("pm1 {}", pm1);
 
+        let world = World::new();
+        let octree_mesh = world.get_octree().mesh_lines();
+
         Self {
-            graph: Arc::new(Mutex::new(graph)),
+            graph: Arc::new(Mutex::new(world)),
+            octree_mesh,
             graph_renderer: graph_renderer.clone(),
             screen_transform_ortho,
             screen_transform_pers,
@@ -146,9 +152,10 @@ impl GuiComponent for Application {
         //     positions[*n].v = 1;
         // }
         //
-        let edges = lines.iter().map(
-            |p| (positions[p.0].p, positions[p.1].p)
-        ).collect::<Vec<(Vec3, Vec3)>>();
+        // let edges = lines.iter().map(
+        //     |p| (positions[p.0].p, positions[p.1].p)
+        // ).collect::<Vec<(Vec3, Vec3)>>();
+        let edges = lock.get_octree().mesh_lines();
         self.graph_renderer.lock().unwrap().graph_data(positions, edges);
 
         // Show selected nodes' details

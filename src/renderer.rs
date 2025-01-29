@@ -50,7 +50,7 @@ impl GraphRenderer {
         self.transform = Some(transform);
     }
 
-    pub fn graph_data(&mut self, positions: Vec<RenderNode>, edges: Vec<(Vec3, Vec3)>) {
+    pub fn graph_data(&mut self, positions: Vec<RenderNode>, edges: Vec<(Vec4, Vec4)>) {
 
         let (_, ivert_mem, _) = unsafe { self.buffer.as_mut().unwrap().mapped().align_to_mut::<IVec4>() };
         ivert_mem[0] = IVec4::new(positions.len() as i32, 0, 0, 0);
@@ -63,8 +63,8 @@ impl GraphRenderer {
         iedge_mem[0] = IVec4::new(edges.len() as i32, 0, 0, 0);
         let (_, edge_mem, _) = unsafe { self.edge_buffer.as_mut().unwrap().mapped().align_to_mut::<Vec4>() };
         for i in 0..edges.len() {
-            edge_mem[i*2+1] = Vec4::new(edges[i].0.x, edges[i].0.y, edges[i].0.z, 1.0);
-            edge_mem[i*2+2] = Vec4::new(edges[i].1.x, edges[i].1.y, edges[i].1.z, 1.0);
+            edge_mem[i*2+1] = Vec4::new(edges[i].0.x, edges[i].0.y, edges[i].0.z, edges[i].0.w);
+            edge_mem[i*2+2] = Vec4::new(edges[i].1.x, edges[i].1.y, edges[i].1.z, edges[i].1.w);
         }
     }
 }
@@ -81,7 +81,7 @@ impl RenderComponent for GraphRenderer {
             vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST
         );
 
-        let positions = 1024 * 4;
+        let positions = 1024 * 1000;
         let buffer = Buffer::new(
             &renderer.device,
             &mut renderer.allocator,
@@ -90,7 +90,7 @@ impl RenderComponent for GraphRenderer {
             vk::BufferUsageFlags::STORAGE_BUFFER
         );
 
-        let edges = 1024 * 4;
+        let edges = 1024 * 1000;
         let edge_buffer = Buffer::new(
             &renderer.device,
             &mut renderer.allocator,
