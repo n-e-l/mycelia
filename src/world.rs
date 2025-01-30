@@ -39,7 +39,7 @@ impl World {
     pub fn new() -> Self {
 
         let mut g = DiGraph::<Node, ()>::new();
-        for i in 0..1000 {
+        for i in 0..4000 {
             g.add_node(Node::new());
         }
 
@@ -91,7 +91,6 @@ impl World {
     }
 
     pub fn update(&mut self) {
-        let mut forces = Vec::new();
 
         if self.bh_physics {
             self.octree.clear();
@@ -101,7 +100,9 @@ impl World {
             }
         }
 
-        for i in self.graph.node_indices() {
+        use rayon::prelude::*;
+        let mut forces: Vec<(usize, Vec3)> = self.graph.node_indices().enumerate().par_bridge().map(|(index, i)| {
+
             let n = &self.graph[i];
 
             let mut force = Vec3::new(0.0, 0.0, 0.0);
@@ -143,14 +144,16 @@ impl World {
 
             force -= n.pos.normalize() * n.pos.length() * self.center_attraction;
 
-            let delta = 1.0 / 40200.;
+            let delta = 1.0 / 402000.;
             force *= delta;
 
-            forces.push(force);
-        }
+            (index, force)
+        }).collect();
+
+        forces.sort_by_key(|&(idx, _)| idx);
 
         for (i, n) in self.graph.node_weights_mut().enumerate() {
-            n.pos = n.pos + forces[i];
+            n.pos = n.pos + forces[i].1;
         }
     }
 
