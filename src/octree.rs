@@ -23,53 +23,101 @@ impl Bounds {
 }
 
 #[derive(Debug)]
-pub struct OctreeNode<T> {
+pub struct OctreeNode {
     bounds: Bounds,
-    data: Option<(T, Vec3)>,
-    children: Option<Box<[OctreeNode<T>; 8]>>,
+    level: usize,
+    children: Option<Box<[OctreeNode; 8]>>,
+    center_of_mass: Vec3,
+    total_mass: f32,
 }
 
-impl<T: std::fmt::Debug> OctreeNode<T> {
-    pub fn new(center: Vec3, half_size: f32) -> OctreeNode<T> {
+impl OctreeNode {
+    pub fn new(center: Vec3, half_size: f32) -> OctreeNode {
         OctreeNode {
             bounds: Bounds { center, half_size},
-            data: None,
+            level: 0,
             children: None,
+            center_of_mass: center,
+            total_mass: 0.0,
         }
     }
 
-    pub fn insert(&mut self, node: T, position: Vec3) -> bool {
+    pub fn clear(&mut self) {
+        self.children = None;
+        self.center_of_mass = self.bounds.center;
+        self.total_mass = 0.0;
+    }
+
+    fn repulsion(p1: &Vec3, m1: f32, p2: &Vec3, m2: f32, repulsion: f32) -> Vec3 {
+        let mut force = Vec3::ZERO;
+        let diff = (p2 - p1);
+        if diff.length() >= 0.01 {
+            force = -diff.normalize() * m1 * m2 * repulsion / ( diff.length() * diff.length());
+        }
+        force
+    }
+
+    pub fn get_force(&self, point: &Vec3, repulsion: &f32, theta: &f32, mut force: &mut Vec3) {
+        if let Some(children) = &self.children {
+            for i in 0..children.len() {
+                let node_theta = ( children[i].bounds.half_size * 2.) / children[i].bounds.center.distance(*point);
+                if node_theta < *theta {
+                    if children[ i ].total_mass == 0.0 { continue; }
+                    *force += Self::repulsion(point, 1., &children[i].center_of_mass, children[i].total_mass, *repulsion);
+                } else {
+                    children[i].get_force(point, repulsion, theta, force);
+                }
+            }
+        } else {
+            *force += Self::repulsion(point, 1., &self.center_of_mass, self.total_mass, *repulsion);
+        }
+    }
+
+    pub fn insert(&mut self, position: Vec3) -> bool {
+
         if !self.bounds.contains(position) {
             return false;
         }
 
-        if self.data.is_none() && self.children.is_none() {
-            // Just store the data
-            self.data = Some((node, position));
+        if self.level > 8 {
+            let new_total_mass = self.total_mass + 1.;
+            self.center_of_mass = (self.center_of_mass * self.total_mass + position * 1.) / new_total_mass;
+            self.total_mass = new_total_mass;
             return true;
         }
 
-        if self.data.is_some() && self.children.is_none() {
-            // Move the existing data into a child
-            let existing_data = self.data.take().unwrap();
-            self.subdivide();
-            return self.insert_into_children(existing_data.0, existing_data.1);
+        if self.total_mass == 0. && self.children.is_none() {
+            // Just store the data
+            self.center_of_mass = position;
+            self.total_mass = 1.;
+            return true;
         }
 
-        self.insert_into_children(node, position);
-        true
+        if self.total_mass > 0. && self.children.is_none() {
+            // Move the existing data into a child
+            self.subdivide();
+            self.insert_into_children(self.center_of_mass);
+        }
+
+        let new_total_mass = self.total_mass + 1.;
+        self.center_of_mass = (self.center_of_mass * self.total_mass + position * 1.) / new_total_mass;
+        self.total_mass = new_total_mass;
+
+        self.insert_into_children(position)
     }
 
     fn subdivide(&mut self) {
         let half = self.bounds.half_size / 2.0;
         let center = self.bounds.center;
 
-        let mut children: Vec<OctreeNode<T>> = vec![];
+        let mut children: Vec<OctreeNode> = vec![];
         for i in 0..8 {
             let x = if i & 1 == 0 { center.x - half } else { center.x + half };
             let y = if i & 2 == 0 { center.y - half } else { center.y + half };
             let z = if i & 4 == 0 { center.z - half } else { center.z + half };
-            children.push(OctreeNode::new(Vec3::new(x, y, z), half));
+            let mut child = OctreeNode::new(Vec3::new(x, y, z), half);
+            child.level = self.level + 1;
+            children.push(child);
         }
 
         self.children = Some(Box::new(children.try_into().unwrap()));
@@ -112,10 +160,10 @@ impl<T: std::fmt::Debug> OctreeNode<T> {
         lines
     }
 
-    fn insert_into_children(&mut self, node: T, position: Vec3) -> bool {
+    fn insert_into_children(&mut self, position: Vec3) -> bool {
         if let Some(ref mut children) = self.children.as_mut() {
             let index = self.bounds.get_octant(position);
-            return children[index].insert(node, position);
+            return children[index].insert(position);
         }
         false
     }

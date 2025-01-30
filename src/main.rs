@@ -1,5 +1,6 @@
 use std::ops::Mul;
 use std::sync::{Arc, Mutex};
+use std::time::Instant;
 use cen::app::App;
 use cen::app::app::AppConfig;
 use cen::app::gui::GuiComponent;
@@ -152,10 +153,13 @@ impl GuiComponent for Application {
         //     positions[*n].v = 1;
         // }
         //
-        // let edges = lines.iter().map(
-        //     |p| (positions[p.0].p, positions[p.1].p)
-        // ).collect::<Vec<(Vec3, Vec3)>>();
-        let edges = lock.get_octree().mesh_lines();
+        let edges = lines.iter().map(
+            |p| {
+                let p0 = positions[p.0].p;
+                let p1 = positions[p.1].p;
+                return (Vec4::new(p0.x, p0.y, p0.z, 0.), Vec4::new(p1.x, p1.y, p1.z, 0.));
+            }).collect::<Vec<(Vec4, Vec4)>>();
+        // let edges = lock.get_octree().mesh_lines();
         self.graph_renderer.lock().unwrap().graph_data(positions, edges);
 
         // Show selected nodes' details
@@ -215,10 +219,17 @@ impl GuiComponent for Application {
                 );
                 ui.label("Center attraction");
                 ui.add(
-                    Slider::new(lock.get_center_attraction_mut(), 0.0..=300.0)
+                    Slider::new(lock.get_center_attraction_mut(), 0.0..=1200.0)
+                );
+
+                ui.label("Theta");
+                ui.add(
+                    Slider::new(lock.get_bh_theta(), 0.0..=2.0)
                 );
 
                 ui.add(Checkbox::new(&mut self.perspective_camera, "Use perspective camera"));
+
+                ui.add(Checkbox::new(&mut lock.bh_physics(), "B-h physics"));
 
                 if self.perspective_camera {
                     self.graph_renderer.lock().unwrap().transform(self.screen_transform_pers * self.view_transform);

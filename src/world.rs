@@ -1,4 +1,5 @@
 use std::ops::Index;
+use std::time::Instant;
 use egui::Vec2;
 use glam::Vec3;
 use petgraph::Direction;
@@ -29,27 +30,29 @@ pub(crate) struct World {
     center_attraction: f32,
     edge_strength: f32,
     graph: DiGraph<Node, ()>,
-    octree: OctreeNode<NodeIndex>,
+    octree: OctreeNode,
+    bh_physics: bool,
+    bh_theta: f32
 }
 
 impl World {
     pub fn new() -> Self {
 
         let mut g = DiGraph::<Node, ()>::new();
-        for i in 0..40 {
+        for i in 0..1000 {
             g.add_node(Node::new());
         }
 
-        for i in 0..100 {
+        for i in 0..0 {
             let id_a = g.node_indices().nth(random::<usize>() % g.node_indices().len()).unwrap();
             let id_b = g.node_indices().nth(random::<usize>() % g.node_indices().len()).unwrap();
             g.update_edge(id_a, id_b, ());
         }
 
-        let mut octree = OctreeNode::<NodeIndex>::new(Vec3::new(0., 0., 0.), 0.31);
+        let mut octree = OctreeNode::new(Vec3::new(0., 0., 0.), 2.6);
         for i in g.node_indices() {
             let n = g.node_weight(i).unwrap();
-            octree.insert(i, n.pos);
+            octree.insert(n.pos);
         }
 
         Self {
@@ -57,12 +60,22 @@ impl World {
             edge_strength: 20.0,
             center_attraction: 90.0,
             graph: g,
-            octree
+            octree,
+            bh_physics: false,
+            bh_theta: 0.5
         }
     }
 
-    pub fn get_octree(&self) -> &OctreeNode<NodeIndex> {
+    pub fn bh_physics(&mut self) -> &mut bool {
+        &mut self.bh_physics
+    }
+
+    pub fn get_octree(&self) -> &OctreeNode {
         &self.octree
+    }
+
+    pub fn get_bh_theta(&mut self) -> &mut f32 {
+        &mut self.bh_theta
     }
 
     pub fn get_repulsion(&mut self) -> &mut f32 {
@@ -78,21 +91,35 @@ impl World {
     }
 
     pub fn update(&mut self) {
-        return;
         let mut forces = Vec::new();
+
+        if self.bh_physics {
+            self.octree.clear();
+            for i in self.graph.node_indices() {
+                let n = self.graph.node_weight(i).unwrap();
+                self.octree.insert(n.pos);
+            }
+        }
 
         for i in self.graph.node_indices() {
             let n = &self.graph[i];
 
-            // Add node repulsion
             let mut force = Vec3::new(0.0, 0.0, 0.0);
-            self.graph.raw_nodes().iter().for_each(|n2| {
-                let diff = &n2.weight.pos - &n.pos;
-                if diff.length() <= 0.01 {
-                    return;
-                }
-                force -= diff.normalize() * ( self.repulsion / diff.length() );
-            });
+
+            // Add node repulsion
+            let start = Instant::now();
+            if self.bh_physics {
+                self.octree.get_force(&n.pos, &self.repulsion, &self.bh_theta, &mut force);
+            } else {
+                self.graph.raw_nodes().iter().for_each(|n2| {
+                    let diff = &n2.weight.pos - &n.pos;
+                    if diff.length() <= 0.01 {
+                        return;
+                    }
+                    force -= diff.normalize() * (self.repulsion / ( diff.length() * diff.length() ));
+                });
+            }
+            let duration = start.elapsed();
 
             // Add edge attraction
             for e in self.graph.edges_directed(i, Direction::Outgoing) {
@@ -116,7 +143,7 @@ impl World {
 
             force -= n.pos.normalize() * n.pos.length() * self.center_attraction;
 
-            let delta = 1.0 / 4020.;
+            let delta = 1.0 / 40200.;
             force *= delta;
 
             forces.push(force);
