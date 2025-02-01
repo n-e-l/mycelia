@@ -48,29 +48,31 @@ impl OctreeNode {
         self.total_mass = 0.0;
     }
 
-    fn repulsion(p1: &Vec3, m1: f32, p2: &Vec3, m2: f32, repulsion: f32) -> Vec3 {
-        let mut force = Vec3::ZERO;
-        let diff = (p2 - p1);
-        if diff.length() >= 0.01 {
-            force = -diff.normalize() * m1 * m2 * repulsion / ( diff.length() * diff.length());
+    fn repulsion(p1: &Vec3, m1: f32, p2: &Vec3, m2: f32, repulsion: f32, out: &mut Vec3) {
+        let diff = p2 - p1;
+        let l = diff.length();
+        if l >= 0.01 {
+            *out -= diff.normalize() * m1 * m2 * repulsion / ( l * l );
         }
-        force
     }
 
     pub fn get_force(&self, point: &Vec3, repulsion: &f32, theta: &f32, mut force: &mut Vec3) {
-        if let Some(children) = &self.children {
-            for i in 0..children.len() {
-                let node_theta = ( children[i].bounds.half_size * 2.) / children[i].bounds.center.distance(*point);
-                if node_theta < *theta {
-                    if children[ i ].total_mass == 0.0 { continue; }
-                    *force += Self::repulsion(point, 1., &children[i].center_of_mass, children[i].total_mass, *repulsion);
-                } else {
-                    children[i].get_force(point, repulsion, theta, force);
-                }
-            }
-        } else {
-            *force += Self::repulsion(point, 1., &self.center_of_mass, self.total_mass, *repulsion);
+        if self.total_mass == 0.0 { return; }
+
+        let node_theta = self.bounds.half_size * 2. / self.bounds.center.distance(*point);
+        if node_theta < *theta {
+            Self::repulsion(point, 1., &self.center_of_mass, self.total_mass, *repulsion, force);
+            return;
         }
+
+        if let Some(children) = &self.children {
+            for c in children.iter() {
+                c.get_force(point, repulsion, theta, force);
+            }
+            return;
+        }
+
+        Self::repulsion(point, 1., &self.center_of_mass, self.total_mass, *repulsion, force);
     }
 
     pub fn insert(&mut self, position: Vec3) -> bool {
@@ -79,7 +81,7 @@ impl OctreeNode {
             return false;
         }
 
-        if self.level > 8 {
+        if self.level > 14 {
             let new_total_mass = self.total_mass + 1.;
             self.center_of_mass = (self.center_of_mass * self.total_mass + position * 1.) / new_total_mass;
             self.total_mass = new_total_mass;

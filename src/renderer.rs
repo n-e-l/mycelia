@@ -225,7 +225,7 @@ impl RenderComponent for GraphRenderer {
             bytemuck::bytes_of(&push_constants)
         );
 
-        command_buffer.dispatch(500, 1, 1 );
+        command_buffer.dispatch(1500, 1, 1 );
 
         // Render edges
         let compute = renderer.pipeline_store().get(self.edge_pipeline.unwrap()).unwrap();

@@ -15,13 +15,15 @@ use crate::renderer::{GraphRenderer, RenderNode};
 mod world;
 mod renderer;
 mod octree;
+mod octree_list;
 
 struct Application {
     graph_renderer: Arc<Mutex<GraphRenderer>>,
     graph: Arc<Mutex<World>>,
     view_transform: Mat4,
     screen_transform_ortho: Mat4,
-    screen_transform_pers: Mat4,
+    screen_transform: Mat4,
+    transform_pers: Mat4,
     perspective_camera: bool,
     octree_mesh: Vec<(Vec4, Vec4)>
 }
@@ -37,6 +39,7 @@ impl Application {
         let mut graph = World::new();
 
         // Transform
+        let scaling = 1.;
         let width = 1600.;
         let height = 900.;
         let aspect_ratio = width / height;
@@ -48,22 +51,12 @@ impl Application {
 
         // pers
         let translate = Mat4::from_translation(Vec3::new(0., 0., 0.8));
-        let screen_translate = Mat4::from_translation(Vec3::new(width, height, 1.));
-        let scale_pers = Mat4::from_scale(Vec3::new(width, height, 1.));
         let projection = Mat4::perspective_rh(1.2, aspect_ratio, 0.01, 10.);
-        let screen_transform_pers = screen_translate * scale_pers * projection * translate;
+        let transform_pers = projection * translate;
 
-        let mut p1 = screen_transform_pers * Vec4::new(1., 1., 0., 1.);
-        p1 = p1 / p1.w;
-        println!("p1 {}", p1);
-
-        let mut p0 = screen_transform_pers * Vec4::new(0., 0., 0., 1.);
-        p0 = p0 / p0.w;
-        println!("p0 {}", p0);
-
-        let mut pm1 = screen_transform_pers * Vec4::new(-1., -1., 0., 1.);
-        pm1 = pm1 / pm1.w;
-        println!("pm1 {}", pm1);
+        let screen_translate = Mat4::from_translation(Vec3::new(width, height, 1.));
+        let screen_scale = Mat4::from_scale(Vec3::new(width * 2., height * 2., 1.));
+        let screen_transform = screen_translate * screen_scale;
 
         let world = World::new();
         let octree_mesh = world.get_octree().mesh_lines();
@@ -73,7 +66,8 @@ impl Application {
             octree_mesh,
             graph_renderer: graph_renderer.clone(),
             screen_transform_ortho,
-            screen_transform_pers,
+            transform_pers,
+            screen_transform,
             view_transform: Mat4::from_scale(Vec3::new(1., 1., 1.)),
             perspective_camera: true,
         }
@@ -102,7 +96,7 @@ impl GuiComponent for Application {
                 if let Some(mut p) = x.pointer.press_origin() {
                     p = p * 2.;
 
-                    let mat = self.screen_transform_pers * self.view_transform;
+                    let mat = self.screen_transform * self.transform_pers * self.view_transform;
                     let mut wp = mat.inverse() * Vec4::new(p.x, p.y, 0., 1.);
                     wp = wp / wp.w;
                     let mut wp_f = mat.inverse() * Vec4::new(p.x, p.y, 10., 1.);
@@ -219,7 +213,7 @@ impl GuiComponent for Application {
                 );
                 ui.label("Center attraction");
                 ui.add(
-                    Slider::new(lock.get_center_attraction_mut(), 0.0..=1200.0)
+                    Slider::new(lock.get_center_attraction_mut(), 0.0..=20200.0)
                 );
 
                 ui.label("Theta");
@@ -231,8 +225,10 @@ impl GuiComponent for Application {
 
                 ui.add(Checkbox::new(&mut lock.bh_physics(), "B-h physics"));
 
+                ui.add(Checkbox::new(&mut lock.run_physics(), "simulate"));
+
                 if self.perspective_camera {
-                    self.graph_renderer.lock().unwrap().transform(self.screen_transform_pers * self.view_transform);
+                    self.graph_renderer.lock().unwrap().transform(self.transform_pers * self.view_transform);
                 } else {
                     self.graph_renderer.lock().unwrap().transform(self.screen_transform_ortho * self.view_transform);
                 }
