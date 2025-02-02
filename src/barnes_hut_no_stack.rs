@@ -1,5 +1,5 @@
 use glam::{Vec3, Vec4};
-use crate::octree::OctreeNode;
+use crate::barnes_hut::OctreeNode;
 
 #[derive(Debug)]
 #[derive(Copy)]
@@ -38,11 +38,14 @@ impl Bounds {
 }
 
 #[derive(Debug)]
+#[derive(Copy)]
+#[derive(Clone)]
 struct Node {
     bounds: Bounds,
     children: usize,
     center_of_mass: Vec3,
-    mass: f32
+    mass: f32,
+    next: usize,
 }
 
 impl Node {
@@ -66,7 +69,8 @@ impl Octree {
                 bounds: Bounds { center, size},
                 children: 0,
                 center_of_mass: Vec3::ZERO,
-                mass: 0.
+                mass: 0.,
+                next: 0,
             }]
         }
     }
@@ -77,11 +81,14 @@ impl Octree {
             bounds: Bounds { center: self.center, size: self.size},
             children: 0,
             center_of_mass: Vec3::ZERO,
-            mass: 0.
+            mass: 0.,
+            next: 0,
         });
     }
 
     fn repulsion(p1: &Vec3, m1: f32, p2: &Vec3, m2: f32, repulsion: f32, out: &mut Vec3) {
+        if m1 == 0. || m2 == 0. { return; }
+
         let diff = p2 - p1;
         let l = diff.length();
         if l >= 0.01 {
@@ -92,53 +99,30 @@ impl Octree {
     pub fn get_force(&self, point: &Vec3, mass: f32, repulsion: f32, max_theta: f32) -> Vec3 {
         let mut force = Vec3::ZERO;
 
-        let mut root = 0;
-        let mut o = 0;
-
-        let mut stack: Vec<(usize, usize)> = vec![];
-
         // Go through the nodes
+        let mut node = 1;
         loop {
-            let node = root + o;
-            let n = &self.nodes[node];
+            let n = self.nodes[node];
 
-            // Leafs should be added and exited
-            if n.is_leaf() {
-                if !n.is_empty() {
-                    Self::repulsion(point, mass, &n.center_of_mass, n.mass, repulsion, &mut force);
+            if n.is_leaf() || n.bounds.size / (n.bounds.center - point).length() < max_theta {
+                // Add the mass
+                Self::repulsion(point, mass, &n.center_of_mass, n.mass, repulsion, &mut force);
+
+                // Skip children
+                node = n.next;
+
+                if node == 0 {
+                    break;
                 }
+
+                continue;
             } else {
-                // Node has children
-                let theta = n.bounds.size / (n.bounds.center - point).length();
-                if theta > max_theta || n.bounds.contains(*point) {
-                    // Go deeper in the octree
-                    stack.push((root, o));
-                    root = n.children;
-                    o = 0;
-                    continue;
-                } else {
-                    // Add the combined mass
-                    Self::repulsion(point, mass, &n.center_of_mass, n.mass, repulsion, &mut force);
-                }
-            }
-
-            // Go to the next child
-            o = o + 1;
-
-            while o == 8 {
-                if let Some((parent_i, parent_o)) = stack.pop() {
-                    if parent_i == 0 {
-                        return force;
-                    }
-
-                    root = parent_i;
-                    o = parent_o + 1;
-                } else {
-                    // No more nodes to navigate
-                    return force;
-                }
+                // Go deeper
+                node = n.children;
             }
         }
+
+        force
     }
 
     pub fn insert(&mut self, position: Vec3, mass: f32) {
@@ -196,13 +180,15 @@ impl Octree {
     fn subdivide(&mut self, node: usize) -> usize {
         let children = self.nodes.len();
 
-        self.nodes[node].bounds.into_octants().iter().for_each(|bounds| {
+        let parent_next = self.nodes[node].next;
+        self.nodes[node].bounds.into_octants().iter().enumerate().for_each(|(index, bounds)| {
             self.nodes.push(
             Node {
                 bounds: *bounds,
                 children: 0,
                 center_of_mass: Vec3::ZERO,
                 mass: 0.,
+                next: if index == 7 { parent_next } else { children + index + 1 },
             });
         });
 

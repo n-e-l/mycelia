@@ -6,8 +6,8 @@ use petgraph::Direction;
 use petgraph::graph::{DiGraph, NodeIndex, NodeWeightsMut, UnGraph};
 use petgraph::prelude::EdgeRef;
 use rand::random;
-use crate::octree::OctreeNode;
-use crate::octree_list;
+use crate::barnes_hut::OctreeNode;
+use crate::barnes_hut_no_stack;
 
 #[derive(Default)]
 #[derive(Copy)]
@@ -32,7 +32,7 @@ pub(crate) struct World {
     edge_strength: f32,
     graph: DiGraph<Node, ()>,
     octree: OctreeNode,
-    octree_l: octree_list::Octree,
+    octree_l: barnes_hut_no_stack::Octree,
     bh_physics: bool,
     bh_theta: f32,
     run_physics: bool,
@@ -42,11 +42,11 @@ impl World {
     pub fn new() -> Self {
 
         let mut g = DiGraph::<Node, ()>::new();
-        for i in 0..4000 {
+        for i in 0..8000 {
             g.add_node(Node::new());
         }
 
-        for i in 0..0 {
+        for i in 0..4000 {
             let id_a = g.node_indices().nth(random::<usize>() % g.node_indices().len()).unwrap();
             let id_b = g.node_indices().nth(random::<usize>() % g.node_indices().len()).unwrap();
             g.update_edge(id_a, id_b, ());
@@ -58,7 +58,7 @@ impl World {
             octree.insert(n.pos);
         }
 
-        let mut octree_l = octree_list::Octree::new(Vec3::new(0., 0., 0.), 2.6);
+        let mut octree_l = barnes_hut_no_stack::Octree::new(Vec3::new(0., 0., 0.), 2.6);
         for i in g.node_indices() {
             let n = g.node_weight(i).unwrap();
             octree_l.insert(n.pos, 1.);
@@ -119,15 +119,15 @@ impl World {
             }
             self.octree_l.backpropagate();
         } else {
-            self.octree.clear();
-            for i in self.graph.node_indices() {
-                let n = self.graph.node_weight(i).unwrap();
-                self.octree.insert(n.pos);
-            }
+            // self.octree.clear();
+            // for i in self.graph.node_indices() {
+            //     let n = self.graph.node_weight(i).unwrap();
+            //     self.octree.insert(n.pos);
+            // }
         }
 
         use rayon::prelude::*;
-        let mut forces: Vec<(NodeIndex, Vec3)> = self.graph.node_indices().enumerate().map(|(index, i)| {
+        let mut forces: Vec<(NodeIndex, Vec3)> = self.graph.node_indices().enumerate().par_bridge().map(|(index, i)| {
 
             let n = &self.graph[i];
 
@@ -138,14 +138,14 @@ impl World {
             if self.bh_physics {
                 force += self.octree_l.get_force(&n.pos, 1., self.repulsion, self.bh_theta);
             } else {
-                self.octree.get_force(&n.pos, &self.repulsion, &self.bh_theta, &mut force);
-                //self.graph.raw_nodes().iter().for_each(|n2| {
-                    //let diff = &n2.weight.pos - &n.pos;
-                    //if diff.length() <= 0.01 {
-                        //return;
-                    //}
-                    //force -= diff.normalize() * (self.repulsion / ( diff.length() * diff.length() ));
-                //});
+                // self.octree.get_force(&n.pos, &self.repulsion, &self.bh_theta, &mut force);
+                self.graph.raw_nodes().iter().for_each(|n2| {
+                    let diff = &n2.weight.pos - &n.pos;
+                    if diff.length() <= 0.01 {
+                        return;
+                    }
+                    force -= diff.normalize() * (self.repulsion / ( diff.length() * diff.length() ));
+                });
             }
             let duration = start.elapsed();
 

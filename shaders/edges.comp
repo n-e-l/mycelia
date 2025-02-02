@@ -9,7 +9,7 @@ struct Pos {
     float v;
 };
 layout(std430, binding = 1 ) buffer Locations {
-    int len;
+    ivec4 v;
     Pos pos[];
 } edges;
 
@@ -70,7 +70,7 @@ void main()
         return;
     }
 
-    if( p.x >= edges.len || p.y > 1 ) return;
+    if( p.x >= edges.v.x || p.y > 1 ) return;
     int id = p.x;
 
     vec2 pos = vec2( float( p.x ) / float( screenSize.x ), float( p.y ) / float( screenSize.y ) ) - 0.5f;
@@ -83,6 +83,16 @@ void main()
     vec4 p2 = constants.transform * vec4(edges.pos[id*2+1].p, 1);
     p1 /= p1.w;
     p2 /= p2.w;
+
+    p1.x *= screenSize.x;
+    p1.y *= screenSize.y;
+    p1.x += screenSize.x / 2.;
+    p1.y += screenSize.y / 2.;
+
+    p2.x *= screenSize.x;
+    p2.y *= screenSize.y;
+    p2.x += screenSize.x / 2.;
+    p2.y += screenSize.y / 2.;
 
     ivec2 ip1 = ivec2( p1.xy );
     ivec2 ip2 = ivec2( p2.xy );

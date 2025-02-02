@@ -14,8 +14,8 @@ use crate::renderer::{GraphRenderer, RenderNode};
 
 mod world;
 mod renderer;
-mod octree;
-mod octree_list;
+mod barnes_hut;
+mod barnes_hut_no_stack;
 
 struct Application {
     graph_renderer: Arc<Mutex<GraphRenderer>>,
@@ -143,15 +143,11 @@ impl GuiComponent for Application {
                 }
             }
         ).collect::<Vec<RenderNode>>();
-        // for n in self.selected_nodes.iter() {
-        //     positions[*n].v = 1;
-        // }
-        //
         let edges = lines.iter().map(
             |p| {
                 let p0 = positions[p.0].p;
                 let p1 = positions[p.1].p;
-                return (Vec4::new(p0.x, p0.y, p0.z, 0.), Vec4::new(p1.x, p1.y, p1.z, 0.));
+                return (Vec4::new(p0.x, p0.y, p0.z, 0.), Vec4::new(p1.x, p1.y, p1.z, 1.));
             }).collect::<Vec<(Vec4, Vec4)>>();
         // let edges = lock.get_octree().mesh_lines();
         self.graph_renderer.lock().unwrap().graph_data(positions, edges);
