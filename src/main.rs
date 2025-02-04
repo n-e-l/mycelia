@@ -157,7 +157,7 @@ impl GuiComponent for Application {
                 return (Vec4::new(p0.x, p0.y, p0.z, 0.), Vec4::new(p1.x, p1.y, p1.z, 1.));
             }).collect::<Vec<(Vec4, Vec4)>>();
         // let edges = lock.get_octree().mesh_lines();
-        self.graph_renderer.lock().unwrap().graph_data(positions, edges);
+        self.graph_renderer.lock().unwrap().graph_data(self.physics_components.node_count(), self.physics_components.node_buffer(), positions, edges);
 
         // Show selected nodes' details
         // for n in self.selected_nodes.iter() {

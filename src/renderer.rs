@@ -1,10 +1,11 @@
 use ash::vk;
-use ash::vk::{DeviceSize, PushConstantRange, ShaderStageFlags, WriteDescriptorSet};
+use ash::vk::{DescriptorBufferInfo, DeviceSize, PushConstantRange, ShaderStageFlags, WriteDescriptorSet};
 use bytemuck::{Pod, Zeroable};
 use cen::graphics::pipeline_store::{PipelineConfig, PipelineKey};
 use cen::graphics::Renderer;
 use cen::graphics::renderer::RenderComponent;
 use cen::vulkan::{Buffer, CommandBuffer, DescriptorSetLayout, Image};
+use egui::debug_text::print;
 use glam::{IVec4, Mat4, Vec3, Vec4};
 use gpu_allocator::MemoryLocation;
 
@@ -16,6 +17,8 @@ pub struct GraphRenderer {
     pipeline: Option<PipelineKey>,
     edge_pipeline: Option<PipelineKey>,
     transform: Option<Mat4>,
+    buffer_info: Option<DescriptorBufferInfo>,
+    node_count: Option<u32>,
 }
 
 #[derive(Copy)]
@@ -26,16 +29,19 @@ pub struct RenderNode {
 }
 
 #[derive(Pod, Zeroable)]
-#[repr(C)]
+#[repr(C, packed)]
 #[derive(Copy)]
 #[derive(Clone)]
 struct PushConstants {
-    transform: Mat4
+    transform: Mat4,
+    nodes: u32,
 }
 
 impl GraphRenderer {
     pub fn new() -> GraphRenderer {
         GraphRenderer {
+            node_count: None,
+            buffer_info: None,
             image: None,
             buffer: None,
             edge_buffer: None,
@@ -50,7 +56,10 @@ impl GraphRenderer {
         self.transform = Some(transform);
     }
 
-    pub fn graph_data(&mut self, positions: Vec<RenderNode>, edges: Vec<(Vec4, Vec4)>) {
+    pub fn graph_data(&mut self, node_count: usize, buffer_info: DescriptorBufferInfo, positions: Vec<RenderNode>, edges: Vec<(Vec4, Vec4)>) {
+
+        self.node_count = Some(node_count as u32);
+        self.buffer_info = Some(buffer_info);
 
         let (_, ivert_mem, _) = unsafe { self.buffer.as_mut().unwrap().mapped().align_to_mut::<IVec4>() };
         ivert_mem[0] = IVec4::new(positions.len() as i32, 0, 0, 0);
@@ -190,7 +199,8 @@ impl RenderComponent for GraphRenderer {
         // Create push constant
         let push_constants = if let Some(transform) = self.transform {
             PushConstants {
-                transform
+                transform,
+                nodes: self.node_count.unwrap()
             }
         } else {
             panic!("No transform provided");
@@ -205,7 +215,7 @@ impl RenderComponent for GraphRenderer {
             .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
             .image_info(&image_bindings);
 
-        let buffer_bindings = [self.buffer.as_ref().unwrap().binding()];
+        let buffer_bindings = [self.buffer_info.unwrap()];
         let buffer_write_descriptor_set = WriteDescriptorSet::default()
             .dst_binding(1)
             .dst_array_element(0)
@@ -225,7 +235,8 @@ impl RenderComponent for GraphRenderer {
             bytemuck::bytes_of(&push_constants)
         );
 
-        command_buffer.dispatch(1500, 1, 1 );
+        let dispatches = self.node_count.unwrap().div_ceil(16);
+        command_buffer.dispatch(dispatches, 1, 1 );
 
         // Render edges
         let compute = renderer.pipeline_store().get(self.edge_pipeline.unwrap()).unwrap();

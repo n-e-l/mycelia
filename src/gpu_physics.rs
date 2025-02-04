@@ -1,11 +1,12 @@
 use ash::vk;
-use ash::vk::{BufferUsageFlags, DeviceSize, Image, ImageView, PushConstantRange};
+use ash::vk::{BufferUsageFlags, DescriptorBufferInfo, DeviceSize, Image, ImageView, PushConstantRange};
 use cen::graphics::pipeline_store::{PipelineConfig, PipelineKey};
 use cen::graphics::Renderer;
 use cen::graphics::renderer::RenderComponent;
 use cen::vulkan::{Buffer, CommandBuffer, DescriptorSetLayout};
 use glam::Vec3;
 use gpu_allocator::MemoryLocation;
+use rand::random;
 
 struct Node {
     position: Vec3,
@@ -27,11 +28,19 @@ struct PushConstants {
 impl PhysicsComponent {
     pub(crate) fn new() -> Self {
         Self {
-            node_count: 100,
+            node_count: 10000,
             node_buffer: None,
             pipeline: None,
             descriptorsetlayout: None,
         }
+    }
+
+    pub fn node_buffer(&self) -> DescriptorBufferInfo {
+        self.node_buffer.as_ref().unwrap().binding()
+    }
+
+    pub fn node_count(&self) -> usize {
+        self.node_count
     }
 }
 
@@ -49,7 +58,8 @@ impl RenderComponent for PhysicsComponent {
         let (_, node_mem, _) = unsafe { node_buffer.mapped().align_to_mut::<Node>() };
         for i in 0..self.node_count {
             node_mem[i] = Node {
-                position: Vec3::ZERO,
+                position: Vec3::new(random::<f32>(), random::<f32>(), random::<f32>()) * 0.2 - 0.1,
+                // position: Vec3::new(1., 1., 1.) * i as f32 / self.node_count as f32 * 0.2 - 0.1,
                 val: 0,
             };
         }
