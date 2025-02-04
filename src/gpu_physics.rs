@@ -1,5 +1,6 @@
 use ash::vk;
-use ash::vk::{BufferUsageFlags, DescriptorBufferInfo, DeviceSize, Image, ImageView, PushConstantRange};
+use ash::vk::{BufferUsageFlags, DescriptorBufferInfo, DeviceSize, Image, ImageView, PushConstantRange, ShaderStageFlags, WriteDescriptorSet};
+use bytemuck::{Pod, Zeroable};
 use cen::graphics::pipeline_store::{PipelineConfig, PipelineKey};
 use cen::graphics::Renderer;
 use cen::graphics::renderer::RenderComponent;
@@ -20,6 +21,10 @@ pub struct PhysicsComponent {
     pipeline: Option<PipelineKey>
 }
 
+#[derive(Pod, Zeroable)]
+#[repr(C, packed)]
+#[derive(Copy)]
+#[derive(Clone)]
 struct PushConstants {
     nodes: usize,
     repulsion: f32
@@ -28,7 +33,7 @@ struct PushConstants {
 impl PhysicsComponent {
     pub(crate) fn new() -> Self {
         Self {
-            node_count: 10000,
+            node_count: 20000,
             node_buffer: None,
             pipeline: None,
             descriptorsetlayout: None,
@@ -100,5 +105,38 @@ impl RenderComponent for PhysicsComponent {
     }
 
     fn render(&mut self, renderer: &mut Renderer, command_buffer: &mut CommandBuffer, swapchain_image: &Image, swapchain_image_view: &ImageView) {
+        // Render
+        let compute = renderer.pipeline_store().get(self.pipeline.unwrap()).unwrap();
+
+        // Create push constant
+        let push_constants = PushConstants {
+            nodes: self.node_count,
+            repulsion: 0.3,
+           };
+
+        command_buffer.bind_pipeline(&compute);
+
+        let buffer_bindings = [self.node_buffer.as_ref().unwrap().binding()];
+        let buffer_write_descriptor_set = WriteDescriptorSet::default()
+            .dst_binding(0)
+            .dst_array_element(0)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&buffer_bindings);
+
+        command_buffer.bind_push_descriptor(
+            &compute,
+            0,
+            &[buffer_write_descriptor_set]
+        );
+
+        command_buffer.push_constants(
+            &compute,
+            ShaderStageFlags::COMPUTE,
+            0,
+            bytemuck::bytes_of(&push_constants)
+        );
+
+        let dispatches = self.node_count.div_ceil(16);
+        command_buffer.dispatch(dispatches as u32, 1, 1 );
     }
 }

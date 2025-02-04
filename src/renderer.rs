@@ -263,7 +263,7 @@ impl RenderComponent for GraphRenderer {
             bytemuck::bytes_of(&push_constants)
         );
 
-        command_buffer.dispatch(500, 1, 1 );
+        // command_buffer.dispatch(500, 1, 1 );
 
         // Transition the render to a source
         renderer.transition_image(
