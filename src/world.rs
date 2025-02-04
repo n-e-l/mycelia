@@ -42,11 +42,11 @@ impl World {
     pub fn new() -> Self {
 
         let mut g = DiGraph::<Node, ()>::new();
-        for i in 0..8000 {
+        for i in 0..1000 {
             g.add_node(Node::new());
         }
 
-        for i in 0..4000 {
+        for i in 0..100 {
             let id_a = g.node_indices().nth(random::<usize>() % g.node_indices().len()).unwrap();
             let id_b = g.node_indices().nth(random::<usize>() % g.node_indices().len()).unwrap();
             g.update_edge(id_a, id_b, ());
