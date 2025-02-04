@@ -1,23 +1,29 @@
 use std::ops::Mul;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
+use ash::vk::{Image, ImageView};
 use cen::app::App;
 use cen::app::app::AppConfig;
 use cen::app::gui::GuiComponent;
+use cen::graphics::Renderer;
 use cen::graphics::renderer::RenderComponent;
+use cen::vulkan::CommandBuffer;
 use dotenv::dotenv;
 use egui::{Align2, Checkbox, Slider, TextWrapMode, Vec2};
 use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 use ordered_float::OrderedFloat;
 use world::World;
+use crate::gpu_physics::PhysicsComponent;
 use crate::renderer::{GraphRenderer, RenderNode};
 
 mod world;
 mod renderer;
 mod barnes_hut;
 mod barnes_hut_no_stack;
+mod gpu_physics;
 
 struct Application {
+    physics_components: PhysicsComponent,
     graph_renderer: Arc<Mutex<GraphRenderer>>,
     graph: Arc<Mutex<World>>,
     view_transform: Mat4,
@@ -62,6 +68,7 @@ impl Application {
         let octree_mesh = world.get_octree().mesh_lines();
 
         Self {
+            physics_components: PhysicsComponent::new(),
             graph: Arc::new(Mutex::new(world)),
             octree_mesh,
             graph_renderer: graph_renderer.clone(),
@@ -256,6 +263,18 @@ impl GuiComponent for Application {
     }
 }
 
+impl RenderComponent for Application {
+    fn initialize(&mut self, renderer: &mut Renderer) {
+        self.physics_components.initialize(renderer);
+        self.graph_renderer.lock().unwrap().initialize(renderer);
+    }
+
+    fn render(&mut self, renderer: &mut Renderer, command_buffer: &mut CommandBuffer, swapchain_image: &Image, swapchain_image_view: &ImageView) {
+        self.physics_components.render(renderer, command_buffer, swapchain_image, swapchain_image_view);
+        self.graph_renderer.lock().unwrap().render(renderer, command_buffer, swapchain_image, swapchain_image_view);
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Initialize .env environment variables
@@ -269,7 +288,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .height(900)
             .log_fps(true)
             .vsync(false),
-        renderer,
+        application.clone(),
         Some(application.clone())
     );
 
