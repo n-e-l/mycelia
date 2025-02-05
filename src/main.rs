@@ -141,23 +141,8 @@ impl GuiComponent for Application {
             }
         });
 
-        let (nodes, lines) = lock.get_mesh();
-        let mut positions = nodes.iter().map(
-            |n| {
-                RenderNode {
-                    p: n.pos,
-                    v: if n.selected { 1 } else { 0 }
-                }
-            }
-        ).collect::<Vec<RenderNode>>();
-        let edges = lines.iter().map(
-            |p| {
-                let p0 = positions[p.0].p;
-                let p1 = positions[p.1].p;
-                return (Vec4::new(p0.x, p0.y, p0.z, 0.), Vec4::new(p1.x, p1.y, p1.z, 1.));
-            }).collect::<Vec<(Vec4, Vec4)>>();
-        // let edges = lock.get_octree().mesh_lines();
-        self.graph_renderer.lock().unwrap().graph_data(self.physics_components.node_count(), self.physics_components.node_buffer(), positions, edges);
+        self.graph_renderer.lock().unwrap().graph_data(self.physics_components.node_count(), self.physics_components.node_buffer(), self.physics_components.edge_count(), self.physics_components.edge_buffer());
+
 
         // Show selected nodes' details
         // for n in self.selected_nodes.iter() {
@@ -208,7 +193,7 @@ impl GuiComponent for Application {
             .show(context, |ui| unsafe {
                 ui.label("Edge attraction");
                 ui.add(
-                    Slider::new(lock.get_edge_strength(), 0.0..=900.0)
+                    Slider::new(&mut self.physics_components.edge_attraction, 0.0..=10.0)
                 );
                 ui.label("Repulsion");
                 ui.add(

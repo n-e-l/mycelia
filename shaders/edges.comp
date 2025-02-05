@@ -4,18 +4,26 @@ layout ( local_size_x = 16, local_size_y = 16, local_size_z = 1 ) in;
 
 layout( binding = 0, rgba8 ) uniform image2D image;
 
-struct Pos {
+struct Node {
     vec3 p;
-    float v;
+    int v;
 };
-layout(std430, binding = 1 ) buffer Locations {
-    ivec4 v;
-    Pos pos[];
-} edges;
+layout(std430, binding = 1 ) buffer NodeLocations {
+    Node nodes[];
+} node_buffer;
+
+struct Edge {
+    int n0;
+    int n1;
+};
+layout(std430, binding = 2 ) buffer EdgeLocations {
+    Edge edges[];
+} edge_buffer;
 
 layout( push_constant ) uniform PushConstants
 {
     mat4 transform;
+    int edges;
 } constants;
 
 vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d )
@@ -23,8 +31,14 @@ vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d )
     return a + b*cos( 6.28318*(c*t+d) );
 }
 
-void dda_line( ivec2 p0, ivec2 p1, vec4 color )
+void dda_line( ivec2 p0, ivec2 p1 )
 {
+
+    if( p0.x < 0 || p0.y < 0 || p1.x < 0 || p1.y < 0 || p1.x > 1600*2 || p0.x > 1600*2 || p1.y > 900*2 || p0.y > 900*2 )
+    {
+        return;
+    }
+
     ivec2 delta = abs( p1 - p0 );
     ivec2 step = ivec2( sign( p1.x - p0.x ), sign( p1.y - p0.y ) );
     ivec2 offset = delta / 2;
@@ -34,7 +48,8 @@ void dda_line( ivec2 p0, ivec2 p1, vec4 color )
     {
         for( int i = 0; i < delta.x; i++ )
         {
-            imageStore( image, p, color );
+            vec3 color = palette( length(offset) / 200.0, vec3( 0.4, 0.2, 0.5 ), vec3( 0.4, 0.7, 0.5 ), vec3( 1.0, 1.2, 0.0 ), vec3( 0.5, 0.60, 0.25 ) );
+            imageStore( image, p, vec4(color, 1) );
             offset.y += delta.y;
             if( offset.y >= delta.x )
             {
@@ -48,7 +63,8 @@ void dda_line( ivec2 p0, ivec2 p1, vec4 color )
     {
         for( int i = 0; i < delta.y; i++ )
         {
-            imageStore( image, p, color );
+            vec3 color = palette( length(offset) / 200., vec3( 0.9, 0.4, 0.5 ), vec3( 0.4, 0.7, 0.5 ), vec3( 1.0, 1.2, 0.0 ), vec3( 0.5, 0.60, 0.25 ) );
+            imageStore( image, p, vec4(color, 1) );
             offset.x += delta.x;
             if( offset.x >= delta.y )
             {
@@ -65,22 +81,14 @@ void main()
 {
     ivec2 p = ivec2( gl_GlobalInvocationID.xy );
     ivec2 screenSize = imageSize( image );
-    if( p.x > screenSize.x || p.y > screenSize.y )
-    {
-        return;
-    }
 
-    if( p.x >= edges.v.x || p.y > 1 ) return;
     int id = p.x;
+    if( id >= constants.edges ) return;
 
-    vec2 pos = vec2( float( p.x ) / float( screenSize.x ), float( p.y ) / float( screenSize.y ) ) - 0.5f;
+    Edge e = edge_buffer.edges[id];
 
-    float t = edges.pos[id*2].v;
-    vec3 color = palette( t, vec3( 0.9, 0.4, 0.5 ), vec3( 0.4, 0.7, 0.5 ), vec3( 1.0, 1.2, 0.0 ), vec3( 0.5, 0.60, 0.25 ) );
-    color *= .7f;
-
-    vec4 p1 = constants.transform * vec4(edges.pos[id*2].p, 1);
-    vec4 p2 = constants.transform * vec4(edges.pos[id*2+1].p, 1);
+    vec4 p1 = constants.transform * vec4(node_buffer.nodes[e.n0].p, 1);
+    vec4 p2 = constants.transform * vec4(node_buffer.nodes[e.n1].p, 1);
     p1 /= p1.w;
     p2 /= p2.w;
 
@@ -96,9 +104,9 @@ void main()
 
     ivec2 ip1 = ivec2( p1.xy );
     ivec2 ip2 = ivec2( p2.xy );
-    dda_line(ip1, ip2, vec4(color, 1));
-    dda_line(ip1 + ivec2(1,1), ip2 + ivec2(1,1), vec4(color, 1));
-    dda_line(ip1 + ivec2(-1,-1), ip2 + ivec2(-1,-1), vec4(color, 1));
-    dda_line(ip1 + ivec2(-1,1), ip2 + ivec2(-1,1), vec4(color, 1));
-    dda_line(ip1 + ivec2(1,-1), ip2 + ivec2(1,-1), vec4(color, 1));
+    dda_line(ip1, ip2);
+    dda_line(ip1 + ivec2(1,1), ip2 + ivec2(1,1));
+    dda_line(ip1 + ivec2(-1,-1), ip2 + ivec2(-1,-1));
+    dda_line(ip1 + ivec2(-1,1), ip2 + ivec2(-1,1));
+    dda_line(ip1 + ivec2(1,-1), ip2 + ivec2(1,-1));
 }

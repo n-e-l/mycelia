@@ -1,0 +1,61 @@
+#version 450
+
+layout ( local_size_x = 16, local_size_y = 1, local_size_z = 1 ) in;
+
+struct Node {
+    vec3 p;
+    int v;
+};
+layout(std430, binding = 0 ) buffer NodeLocationsOut {
+    Node nodes[];
+} node_buffer_out;
+layout(std430, binding = 1 ) buffer NodeLocationsIn {
+    Node nodes[];
+} node_buffer_in;
+
+struct Edge {
+    int n0;
+    int n1;
+};
+layout(std430, binding = 2 ) buffer EdgeLocations {
+    Edge edges[];
+} edge_buffer;
+
+layout( push_constant ) uniform PushConstants
+{
+    int nodes;
+    float edge_attraction;
+} constants;
+
+void main()
+{
+    ivec2 p = ivec2( gl_GlobalInvocationID.xy );
+    int id = p.x;
+
+    if( id >= constants.nodes ) return;
+
+    Node n1 = node_buffer_in.nodes[id];
+    int edge_id = n1.v - 1;
+
+    vec3 force = vec3(0);
+    if( edge_id >= 0 )
+    {
+        int i = 0;
+        Edge e = edge_buffer.edges[edge_id];
+
+        while (e.n0 == id)
+        {
+            vec3 diff = node_buffer_in.nodes[e.n0].p - node_buffer_in.nodes[e.n1].p;
+            float l = length(diff);
+            if( l > .001 ) force += -normalize(diff) * l * l * constants.edge_attraction;
+
+            i += 1;
+            e = edge_buffer.edges[edge_id + i];
+        }
+    }
+
+    if( length( n1.p + force ) > 10. ) {
+        node_buffer_out.nodes[id].p = normalize(n1.p + force);
+    }
+    node_buffer_out.nodes[id].p = n1.p + force;
+}

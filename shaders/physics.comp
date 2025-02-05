@@ -6,9 +6,12 @@ struct Node {
     vec3 p;
     int v;
 };
-layout(std430, binding = 0 ) buffer Locations {
+layout(std430, binding = 0 ) buffer LocationsIn {
     Node nodes[];
-} node_buffer;
+} node_buffer_in;
+layout(std430, binding = 1 ) buffer LocationsOut {
+    Node nodes[];
+} node_buffer_out;
 
 layout( push_constant ) uniform PushConstants
 {
@@ -24,10 +27,10 @@ void main()
     if( id >= constants.nodes ) return;
 
     vec3 force = vec3(0);
-    Node n1 = node_buffer.nodes[id];
+    Node n1 = node_buffer_in.nodes[id];
 
     for( int i = 0; i < constants.nodes; i++ ) {
-        Node n2 = node_buffer.nodes[i];
+        Node n2 = node_buffer_in.nodes[i];
 
         vec3 diff = n2.p - n1.p;
         float l = length(diff);
@@ -38,5 +41,8 @@ void main()
 
     force += -n1.p * 0.014;
 
-    node_buffer.nodes[id].p += force;
+    if( length( n1.p + force ) > 10. ) {
+        node_buffer_out.nodes[id].p = normalize(n1.p + force);
+    }
+    node_buffer_out.nodes[id].p = n1.p + force;
 }

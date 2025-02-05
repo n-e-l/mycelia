@@ -11,14 +11,15 @@ use gpu_allocator::MemoryLocation;
 
 pub struct GraphRenderer {
     image: Option<Image>,
-    buffer: Option<Buffer>,
-    edge_buffer: Option<Buffer>,
     descriptorset: Option<DescriptorSetLayout>,
     pipeline: Option<PipelineKey>,
     edge_pipeline: Option<PipelineKey>,
     transform: Option<Mat4>,
     buffer_info: Option<DescriptorBufferInfo>,
+    edge_buffer_info: Option<DescriptorBufferInfo>,
+    edge_descriptorset: Option<DescriptorSetLayout>,
     node_count: Option<u32>,
+    edge_count: Option<u32>,
 }
 
 #[derive(Copy)]
@@ -41,13 +42,14 @@ impl GraphRenderer {
     pub fn new() -> GraphRenderer {
         GraphRenderer {
             node_count: None,
+            edge_count: None,
             buffer_info: None,
+            edge_buffer_info: None,
             image: None,
-            buffer: None,
-            edge_buffer: None,
             descriptorset: None,
             pipeline: None,
             edge_pipeline: None,
+            edge_descriptorset: None,
             transform: None,
         }
     }
@@ -56,25 +58,12 @@ impl GraphRenderer {
         self.transform = Some(transform);
     }
 
-    pub fn graph_data(&mut self, node_count: usize, buffer_info: DescriptorBufferInfo, positions: Vec<RenderNode>, edges: Vec<(Vec4, Vec4)>) {
+    pub fn graph_data(&mut self, node_count: usize, buffer_info: DescriptorBufferInfo, edge_count: usize, edge_buffer_info: DescriptorBufferInfo) {
 
         self.node_count = Some(node_count as u32);
         self.buffer_info = Some(buffer_info);
-
-        let (_, ivert_mem, _) = unsafe { self.buffer.as_mut().unwrap().mapped().align_to_mut::<IVec4>() };
-        ivert_mem[0] = IVec4::new(positions.len() as i32, 0, 0, 0);
-        let (_, vert_mem, _) = unsafe { self.buffer.as_mut().unwrap().mapped().align_to_mut::<RenderNode>() };
-        for i in 0..positions.len() {
-            vert_mem[i+1] = positions[i];
-        }
-
-        let (_, iedge_mem, _) = unsafe { self.edge_buffer.as_mut().unwrap().mapped().align_to_mut::<IVec4>() };
-        iedge_mem[0] = IVec4::new(edges.len() as i32, 0, 0, 0);
-        let (_, edge_mem, _) = unsafe { self.edge_buffer.as_mut().unwrap().mapped().align_to_mut::<Vec4>() };
-        for i in 0..edges.len() {
-            edge_mem[i*2+1] = Vec4::new(edges[i].0.x, edges[i].0.y, edges[i].0.z, edges[i].0.w);
-            edge_mem[i*2+2] = Vec4::new(edges[i].1.x, edges[i].1.y, edges[i].1.z, edges[i].1.w);
-        }
+        self.edge_count = Some(edge_count as u32);
+        self.edge_buffer_info = Some(edge_buffer_info);
     }
 }
 
@@ -88,24 +77,6 @@ impl RenderComponent for GraphRenderer {
             renderer.swapchain.get_extent().width,
             renderer.swapchain.get_extent().height,
             vk::ImageUsageFlags::STORAGE | vk::ImageUsageFlags::TRANSFER_SRC | vk::ImageUsageFlags::TRANSFER_DST
-        );
-
-        let positions = 1024 * 1000;
-        let buffer = Buffer::new(
-            &renderer.device,
-            &mut renderer.allocator,
-            MemoryLocation::CpuToGpu,
-            (positions * 4 * 8) as DeviceSize,
-            vk::BufferUsageFlags::STORAGE_BUFFER
-        );
-
-        let edges = 1024 * 1000;
-        let edge_buffer = Buffer::new(
-            &renderer.device,
-            &mut renderer.allocator,
-            MemoryLocation::CpuToGpu,
-            (edges * 4 * 8) as DeviceSize,
-            vk::BufferUsageFlags::STORAGE_BUFFER
         );
 
         // Transition image
@@ -152,11 +123,34 @@ impl RenderComponent for GraphRenderer {
             macros: Default::default(),
         }).expect("Failed to create pipeline");
 
+        // Layout
+        let layout_bindings = &[
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(0)
+                .descriptor_type(vk::DescriptorType::STORAGE_IMAGE)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(1)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(2)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+        ];
+        let edge_descriptorset = DescriptorSetLayout::new_push_descriptor(
+            &renderer.device,
+            layout_bindings
+        );
+
         // Pipeline
         let edge_pipeline = renderer.pipeline_store().insert(PipelineConfig {
             shader_path: "shaders/edges.comp".into(),
             descriptor_set_layouts: vec![
-                descriptorset.clone(),
+                edge_descriptorset.clone(),
             ],
             push_constant_ranges: vec![
                 push_constant_range.clone()
@@ -168,8 +162,7 @@ impl RenderComponent for GraphRenderer {
         self.descriptorset = Some(descriptorset);
         self.pipeline = Some(pipeline);
         self.edge_pipeline = Some(edge_pipeline);
-        self.buffer = Some(buffer);
-        self.edge_buffer = Some(edge_buffer);
+        self.edge_descriptorset = Some(edge_descriptorset);
     }
 
     fn render(&mut self, renderer: &mut Renderer, command_buffer: &mut CommandBuffer, swapchain_image: &vk::Image, _: &vk::ImageView) {
@@ -243,9 +236,9 @@ impl RenderComponent for GraphRenderer {
 
         command_buffer.bind_pipeline(&compute);
 
-        let edge_buffer_bindings = [self.edge_buffer.as_ref().unwrap().binding()];
+        let edge_buffer_bindings = [self.edge_buffer_info.unwrap()];
         let edge_buffer_write_descriptor_set = WriteDescriptorSet::default()
-            .dst_binding(1)
+            .dst_binding(2)
             .dst_array_element(0)
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
             .buffer_info(&edge_buffer_bindings);
@@ -253,8 +246,17 @@ impl RenderComponent for GraphRenderer {
         command_buffer.bind_push_descriptor(
             &compute,
             0,
-            &[image_write_descriptor_set, edge_buffer_write_descriptor_set]
+            &[image_write_descriptor_set, buffer_write_descriptor_set, edge_buffer_write_descriptor_set]
         );
+
+        let push_constants = if let Some(transform) = self.transform {
+            PushConstants {
+                transform,
+                nodes: self.edge_count.unwrap()
+            }
+        } else {
+            panic!("No transform provided");
+        };
 
         command_buffer.push_constants(
             &compute,
@@ -263,7 +265,8 @@ impl RenderComponent for GraphRenderer {
             bytemuck::bytes_of(&push_constants)
         );
 
-        // command_buffer.dispatch(500, 1, 1 );
+        let dispatches = self.edge_count.unwrap().div_ceil(16);
+        command_buffer.dispatch(dispatches, 1, 1 );
 
         // Transition the render to a source
         renderer.transition_image(
