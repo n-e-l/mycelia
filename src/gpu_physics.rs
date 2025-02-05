@@ -18,7 +18,8 @@ pub struct PhysicsComponent {
     node_count: usize,
     node_buffer: Option<Buffer>,
     descriptorsetlayout: Option<DescriptorSetLayout>,
-    pipeline: Option<PipelineKey>
+    pipeline: Option<PipelineKey>,
+    repulsion: f32
 }
 
 #[derive(Pod, Zeroable)]
@@ -26,7 +27,7 @@ pub struct PhysicsComponent {
 #[derive(Copy)]
 #[derive(Clone)]
 struct PushConstants {
-    nodes: usize,
+    nodes: u32,
     repulsion: f32
 }
 
@@ -34,6 +35,7 @@ impl PhysicsComponent {
     pub(crate) fn new() -> Self {
         Self {
             node_count: 20000,
+            repulsion: 0.2,
             node_buffer: None,
             pipeline: None,
             descriptorsetlayout: None,
@@ -46,6 +48,10 @@ impl PhysicsComponent {
 
     pub fn node_count(&self) -> usize {
         self.node_count
+    }
+
+    pub fn repulsion(&mut self) -> &mut f32 {
+        &mut self.repulsion
     }
 }
 
@@ -110,8 +116,8 @@ impl RenderComponent for PhysicsComponent {
 
         // Create push constant
         let push_constants = PushConstants {
-            nodes: self.node_count,
-            repulsion: 0.3,
+            nodes: self.node_count as u32,
+            repulsion: self.repulsion,
            };
 
         command_buffer.bind_pipeline(&compute);

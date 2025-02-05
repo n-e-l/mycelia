@@ -31,8 +31,8 @@ void main()
 
         vec3 diff = n2.p - n1.p;
         float l = length(diff);
-        if( l >= 0.01 ) {
-            force -= normalize(diff) * 0.00000001 / (l * l);
+        if( l >= 0.001 ) {
+            force -= normalize(diff) * 0.0000001 * constants.repulsion / (l * l);
         }
     }
 

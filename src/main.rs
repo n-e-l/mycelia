@@ -212,7 +212,7 @@ impl GuiComponent for Application {
                 );
                 ui.label("Repulsion");
                 ui.add(
-                    Slider::new(lock.get_repulsion(), 0.0..=1.0)
+                    Slider::new(self.physics_components.repulsion(), 0.0..=1.0)
                 );
                 ui.label("Center attraction");
                 ui.add(

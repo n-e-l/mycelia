@@ -1,6 +1,5 @@
 use std::ops::Index;
 use std::time::Instant;
-use egui::Vec2;
 use glam::Vec3;
 use petgraph::Direction;
 use petgraph::graph::{DiGraph, NodeIndex, NodeWeightsMut, UnGraph};
@@ -27,7 +26,6 @@ impl Node {
 }
 
 pub(crate) struct World {
-    repulsion: f32,
     center_attraction: f32,
     edge_strength: f32,
     graph: DiGraph<Node, ()>,
@@ -65,7 +63,6 @@ impl World {
         }
 
         Self {
-            repulsion: 0.2,
             edge_strength: 20.0,
             center_attraction: 20000.0,
             graph: g,
@@ -91,10 +88,6 @@ impl World {
 
     pub fn get_bh_theta(&mut self) -> &mut f32 {
         &mut self.bh_theta
-    }
-
-    pub fn get_repulsion(&mut self) -> &mut f32 {
-        &mut self.repulsion
     }
 
     pub fn get_center_attraction_mut(&mut self) -> &mut f32 {
@@ -135,19 +128,6 @@ impl World {
 
             // Add node repulsion
             let start = Instant::now();
-            if self.bh_physics {
-                force += self.octree_l.get_force(&n.pos, 1., self.repulsion, self.bh_theta);
-            } else {
-                // self.octree.get_force(&n.pos, &self.repulsion, &self.bh_theta, &mut force);
-                self.graph.raw_nodes().iter().for_each(|n2| {
-                    let diff = &n2.weight.pos - &n.pos;
-                    if diff.length() <= 0.01 {
-                        return;
-                    }
-                    force -= diff.normalize() * (self.repulsion / ( diff.length() * diff.length() ));
-                });
-            }
-            let duration = start.elapsed();
 
             // Add edge attraction
             for e in self.graph.edges_directed(i, Direction::Outgoing) {
