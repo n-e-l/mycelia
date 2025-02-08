@@ -31,7 +31,7 @@ vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d )
     return a + b*cos( 6.28318*(c*t+d) );
 }
 
-void dda_line( ivec2 p0, ivec2 p1 )
+void dda_line( ivec2 p0, ivec2 p1, vec3 color )
 {
 
     if( p0.x < 0 || p0.y < 0 || p1.x < 0 || p1.y < 0 || p1.x > 1600*2 || p0.x > 1600*2 || p1.y > 900*2 || p0.y > 900*2 )
@@ -48,7 +48,6 @@ void dda_line( ivec2 p0, ivec2 p1 )
     {
         for( int i = 0; i < delta.x; i++ )
         {
-            vec3 color = palette( length(offset) / 200.0, vec3( 0.4, 0.2, 0.5 ), vec3( 0.4, 0.7, 0.5 ), vec3( 1.0, 1.2, 0.0 ), vec3( 0.5, 0.60, 0.25 ) );
             imageStore( image, p, vec4(color, 1) );
             offset.y += delta.y;
             if( offset.y >= delta.x )
@@ -63,7 +62,6 @@ void dda_line( ivec2 p0, ivec2 p1 )
     {
         for( int i = 0; i < delta.y; i++ )
         {
-            vec3 color = palette( length(offset) / 200., vec3( 0.9, 0.4, 0.5 ), vec3( 0.4, 0.7, 0.5 ), vec3( 1.0, 1.2, 0.0 ), vec3( 0.5, 0.60, 0.25 ) );
             imageStore( image, p, vec4(color, 1) );
             offset.x += delta.x;
             if( offset.x >= delta.y )
@@ -102,11 +100,13 @@ void main()
     p2.x += screenSize.x / 2.;
     p2.y += screenSize.y / 2.;
 
+    vec3 color = palette( id / 10000., vec3( 0.1, 0.4, 0.5 ), vec3( 0.4, 0.1, 0.3 ), vec3( 1.0, 0.2, 0.3 ), vec3( 0.1, 0.20, 0.85 ) );
+
     ivec2 ip1 = ivec2( p1.xy );
     ivec2 ip2 = ivec2( p2.xy );
-    dda_line(ip1, ip2);
-    dda_line(ip1 + ivec2(1,1), ip2 + ivec2(1,1));
-    dda_line(ip1 + ivec2(-1,-1), ip2 + ivec2(-1,-1));
-    dda_line(ip1 + ivec2(-1,1), ip2 + ivec2(-1,1));
-    dda_line(ip1 + ivec2(1,-1), ip2 + ivec2(1,-1));
+    dda_line(ip1, ip2, color);
+    dda_line(ip1 + ivec2(1,1), ip2 + ivec2(1,1), color);
+    dda_line(ip1 + ivec2(-1,-1), ip2 + ivec2(-1,-1), color);
+    dda_line(ip1 + ivec2(-1,1), ip2 + ivec2(-1,1), color);
+    dda_line(ip1 + ivec2(1,-1), ip2 + ivec2(1,-1), color);
 }

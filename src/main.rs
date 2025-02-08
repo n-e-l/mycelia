@@ -29,6 +29,7 @@ struct Application {
     view_transform: Mat4,
     screen_transform_ortho: Mat4,
     screen_transform: Mat4,
+    camera_dist: f32,
     transform_pers: Mat4,
     perspective_camera: bool,
     octree_mesh: Vec<(Vec4, Vec4)>
@@ -56,7 +57,8 @@ impl Application {
         let screen_transform_ortho = projection_ortho * scale;
 
         // pers
-        let translate = Mat4::from_translation(Vec3::new(0., 0., 0.8));
+        let camera_dist = 1.2;
+        let translate = Mat4::from_translation(Vec3::new(0., 0., camera_dist));
         let projection = Mat4::perspective_rh(1.2, aspect_ratio, 0.01, 10.);
         let transform_pers = projection * translate;
 
@@ -71,6 +73,7 @@ impl Application {
             physics_components: PhysicsComponent::new(),
             graph: Arc::new(Mutex::new(world)),
             octree_mesh,
+            camera_dist,
             graph_renderer: graph_renderer.clone(),
             screen_transform_ortho,
             transform_pers,
@@ -91,6 +94,17 @@ impl GuiComponent for Application {
 
         // Gui code
         context.input(|x| {
+
+            if x.raw_scroll_delta.y != 0. {
+                self.camera_dist += x.raw_scroll_delta.y * 0.001;
+
+                let width = 1600.;
+                let height = 900.;
+                let aspect_ratio = width / height;
+                let translate = Mat4::from_translation(Vec3::new(0., 0., 1. / -self.camera_dist));
+                let projection = Mat4::perspective_rh(1.2, aspect_ratio, 0.01, 10.);
+                self.transform_pers = projection * translate;
+            }
 
             if x.pointer.button_down(egui::PointerButton::Primary) {
                 let rot_x = glam::Mat4::from_rotation_y(x.pointer.delta().x * 0.5 / 60.0);
@@ -193,7 +207,7 @@ impl GuiComponent for Application {
             .show(context, |ui| unsafe {
                 ui.label("Edge attraction");
                 ui.add(
-                    Slider::new(&mut self.physics_components.edge_attraction, 0.0..=10.0)
+                    Slider::new(&mut self.physics_components.edge_attraction, 0.0..=100.0)
                 );
                 ui.label("Repulsion");
                 ui.add(

@@ -60,8 +60,8 @@ struct PushConstants {
 impl PhysicsComponent {
     pub(crate) fn new() -> Self {
         Self {
-            node_count: 10000,
-            edge_count: 5000,
+            node_count: 8000,
+            edge_count: 6000,
             repulsion: 0.2,
             edge_attraction: 0.2,
             node_buffer_a: None,
@@ -86,7 +86,7 @@ impl PhysicsComponent {
     }
 
     pub fn edge_count(&self) -> usize {
-        self.edge_count
+        self.edge_count * 2
     }
 
     pub fn repulsion(&mut self) -> &mut f32 {
@@ -103,12 +103,13 @@ impl PhysicsComponent {
         );
 
         // Copy edges
-        let mut edges = (0..self.edge_count).into_iter().map(|_| {
-            Edge {
-                node0: random::<u32>() % self.node_count as u32,
-                node1: random::<u32>() % self.node_count as u32,
-            }
-        }).collect::<Vec<Edge>>();
+        let mut edges = vec![Edge {node0: 0, node1: 1}];
+        for i in 0..self.edge_count {
+            edges.push(Edge {
+                node0: edges[(random::<u32>() % edges.len() as u32) as usize].node1,
+                node1: edges.len() as u32 - 1,
+            });
+        };
 
         // Add the reverse edges as well
         let mut reverse_edges = edges.clone().iter().map(|edge| {
@@ -127,10 +128,16 @@ impl PhysicsComponent {
             edge_mem[i] = edges[i];
         }
 
-        // Update nodes
+        // Set node positions to zero
         let (_, node_mem, _) = unsafe { self.node_buffer_a.as_mut().unwrap().mapped().align_to_mut::<Node>() };
+        node_mem.iter_mut().enumerate().rev().for_each(|(i, node)| {
+            node.position = Vec3::ZERO;
+        });
+
+        // Update nodes
         edges.iter().enumerate().rev().for_each(|(i, edge)| {
            node_mem[edge.node0 as usize].edge_index = i as u32 + 1;
+            node_mem[edge.node0 as usize].position = Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5);
         });
 
         // Copy buffer a into the backbuffer

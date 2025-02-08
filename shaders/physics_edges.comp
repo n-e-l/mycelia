@@ -47,15 +47,16 @@ void main()
         {
             vec3 diff = node_buffer_in.nodes[e.n0].p - node_buffer_in.nodes[e.n1].p;
             float l = length(diff);
-            if( l > .001 ) force += -normalize(diff) * l * l * constants.edge_attraction;
+            if( l > 0.001 ) force += -normalize(diff) * l * l * 0.1 * constants.edge_attraction;
 
             i += 1;
             e = edge_buffer.edges[edge_id + i];
         }
+
+        force /= i;
     }
 
-    if( length( n1.p + force ) > 10. ) {
-        node_buffer_out.nodes[id].p = normalize(n1.p + force);
+    if( length( force ) < 1. ) {
+        node_buffer_out.nodes[id].p = n1.p + force;
     }
-    node_buffer_out.nodes[id].p = n1.p + force;
 }

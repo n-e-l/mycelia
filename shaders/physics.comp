@@ -35,14 +35,14 @@ void main()
         vec3 diff = n2.p - n1.p;
         float l = length(diff);
         if( l >= 0.001 ) {
-            force -= normalize(diff) * 0.0000001 * constants.repulsion / (l * l);
+            force -= normalize(diff) * 0.0000001 * constants.repulsion * constants.repulsion / (l * l);
         }
     }
 
-    force += -n1.p * 0.014;
+    force += -normalize(n1.p) * length(n1.p) * length(n1.p) * 0.0000001;
 
-    if( length( n1.p + force ) > 10. ) {
-        node_buffer_out.nodes[id].p = normalize(n1.p + force);
+    if( length( n1.p + force ) > 1. ) {
+        node_buffer_out.nodes[id].p = normalize(n1.p + force) * .01;
     }
     node_buffer_out.nodes[id].p = n1.p + force;
 }
