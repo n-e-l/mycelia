@@ -1,22 +1,17 @@
 #version 450
 
-layout ( local_size_x = 16, local_size_y = 1, local_size_z = 1 ) in;
+layout ( local_size_x = 128, local_size_y = 1, local_size_z = 1 ) in;
 
 struct Node {
-    vec3 p;
-    int v;
-    int cell_id;
-    ivec3 rest;
+    vec4 p;
+    ivec4 i;
 };
 layout(std430, binding = 0 ) buffer LocationsIn {
     Node nodes[];
 } node_buffer_in;
-layout(std430, binding = 1 ) buffer LocationsOut {
-    Node nodes[];
-} node_buffer_out;
 
 /* A buffer with all nodes contained by the cells */
-layout(std430, binding = 2 ) buffer SpatialOrdering {
+layout(std430, binding = 1 ) buffer SpatialOrdering {
     int nodes[];
 } spatial_ordering;
 
@@ -25,14 +20,15 @@ struct CellLookup {
     int order_index;
     int element_count;
 };
-layout(std430, binding = 3 ) buffer SpatialLookup {
+layout(std430, binding = 2 ) buffer SpatialLookup {
     CellLookup cells[];
 } spatial_lookup;
 
 layout( push_constant ) uniform PushConstants
 {
-    int nodes;
-    float repulsion;
+    int node_count;
+    int group_width;
+    int step_index;
 } constants;
 
 void main()
@@ -40,25 +36,7 @@ void main()
     ivec2 p = ivec2( gl_GlobalInvocationID.xy );
     int id = p.x;
 
-    if( id >= constants.nodes ) return;
+    if( id >= constants.node_count ) return;
 
-    vec3 force = vec3(0);
-    Node n1 = node_buffer_in.nodes[id];
-
-    for( int i = 0; i < constants.nodes; i++ ) {
-        Node n2 = node_buffer_in.nodes[i];
-
-        vec3 diff = n2.p - n1.p;
-        float l = length(diff);
-        if( l >= 0.001 ) {
-            force -= normalize(diff) * 0.0000001 * constants.repulsion * constants.repulsion / (l * l);
-        }
-    }
-
-    force += -normalize(n1.p) * length(n1.p) * length(n1.p) * 0.0000001;
-
-    if( length( n1.p + force ) > 1. ) {
-        node_buffer_out.nodes[id].p = normalize(n1.p + force) * .01;
-    }
-    node_buffer_out.nodes[id].p = n1.p + force;
+    //Node n1 = node_buffer_in.nodes[id];
 }

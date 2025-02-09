@@ -3,8 +3,8 @@
 layout ( local_size_x = 128, local_size_y = 1, local_size_z = 1 ) in;
 
 struct Node {
-    vec3 p;
-    int v;
+    vec4 p;
+    ivec4 i;
 };
 layout(std430, binding = 0 ) buffer LocationsIn {
     Node nodes[];
@@ -46,17 +46,17 @@ void main()
     for( int i = 0; i < constants.nodes; i++ ) {
         Node n2 = node_buffer_in.nodes[i];
 
-        vec3 diff = n2.p - n1.p;
+        vec3 diff = n2.p.xyz - n1.p.xyz;
         float l = length(diff);
         if( l >= 0.001 ) {
             force -= normalize(diff) * 0.0000001 * constants.repulsion * constants.repulsion / (l * l);
         }
     }
 
-    force += -normalize(n1.p) * length(n1.p) * length(n1.p) * 0.0000001;
+    force += -normalize(n1.p.xyz) * length(n1.p.xyz) * length(n1.p.xyz) * 0.0000001;
 
-    if( length( n1.p + force ) > 1. ) {
-        node_buffer_out.nodes[id].p = normalize(n1.p + force) * .01;
+    if( length( n1.p.xyz + force ) > 1. ) {
+        node_buffer_out.nodes[id].p = vec4( normalize(n1.p.xyz + force) * .01, 0.);
     }
-    node_buffer_out.nodes[id].p = n1.p + force;
+    node_buffer_out.nodes[id].p = n1.p + vec4(force, 0);
 }
