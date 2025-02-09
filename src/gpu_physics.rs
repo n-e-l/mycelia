@@ -1,3 +1,4 @@
+use std::process::exit;
 use ash::vk;
 use ash::vk::{BufferUsageFlags, DescriptorBufferInfo, DeviceSize, Image, ImageView, PushConstantRange, ShaderStageFlags, WriteDescriptorSet};
 use bytemuck::{Pod, Zeroable};
@@ -5,16 +6,20 @@ use cen::graphics::pipeline_store::{PipelineConfig, PipelineKey};
 use cen::graphics::Renderer;
 use cen::graphics::renderer::RenderComponent;
 use cen::vulkan::{Buffer, CommandBuffer, DescriptorSetLayout};
-use glam::Vec3;
+use cen::vulkan::PipelineErr::ShaderCompilation;
+use glam::{IVec3, Vec3};
 use gpu_allocator::MemoryLocation;
 use petgraph::matrix_graph::Nullable;
 use rand::random;
+use log::error;
 
 #[derive(Debug)]
 #[derive(Copy, Clone)]
 struct Node {
     position: Vec3,
-    edge_index: u32
+    edge_index: u32,
+    // cell_index: u32,
+    // rest: IVec3,
 }
 
 #[derive(Debug)]
@@ -27,6 +32,11 @@ struct Edge {
 struct Order {
     position: Vec3,
     edge_index: u32,
+}
+
+struct SortPipeline {
+    descriptorsetlayout: DescriptorSetLayout,
+    pipeline: PipelineKey,
 }
 
 struct EdgePipeline {
@@ -44,6 +54,7 @@ pub struct PhysicsComponent {
     descriptorsetlayout: Option<DescriptorSetLayout>,
     pipeline: Option<PipelineKey>,
     edge_pipeline: Option<EdgePipeline>,
+    sort_pipeline: Option<SortPipeline>,
     repulsion: f32,
     pub edge_attraction: f32,
 }
@@ -57,11 +68,20 @@ struct PushConstants {
     repulsion: f32
 }
 
+#[derive(Pod, Zeroable)]
+#[repr(C, packed)]
+#[derive(Copy)]
+#[derive(Clone)]
+struct BitonicPushConstants {
+    width: u32,
+    step_index: u32,
+}
+
 impl PhysicsComponent {
     pub(crate) fn new() -> Self {
         Self {
-            node_count: 8000,
-            edge_count: 6000,
+            node_count: 12000,
+            edge_count: 10000,
             repulsion: 0.2,
             edge_attraction: 0.2,
             node_buffer_a: None,
@@ -69,6 +89,7 @@ impl PhysicsComponent {
             order_buffer: None,
             pipeline: None,
             edge_pipeline: None,
+            sort_pipeline: None,
             descriptorsetlayout: None,
         }
     }
@@ -136,7 +157,7 @@ impl PhysicsComponent {
 
         // Update nodes
         edges.iter().enumerate().rev().for_each(|(i, edge)| {
-           node_mem[edge.node0 as usize].edge_index = i as u32 + 1;
+            node_mem[edge.node0 as usize].edge_index = i as u32 + 1;
             node_mem[edge.node0 as usize].position = Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5);
         });
 
@@ -145,14 +166,6 @@ impl PhysicsComponent {
         node_mem.iter().enumerate().for_each(|(i, n)| {
             node_mem_b[i] = node_mem[i];
         });
-
-        for n in node_mem {
-            println!("{:?}", n);
-        }
-
-        for i in edge_mem {
-            println!("{:?}", i);
-        }
 
         // Layout
         let layout_bindings = &[
@@ -200,6 +213,48 @@ impl PhysicsComponent {
             descriptorsetlayout: descriptorset.clone(),
         })
     }
+
+    fn create_sort_pipeline(&mut self, renderer: &mut Renderer) {
+        // Layout
+        let layout_bindings = &[
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(0)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(1)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+        ];
+        let descriptorset = DescriptorSetLayout::new_push_descriptor(
+            &renderer.device,
+            layout_bindings
+        );
+
+        let push_constant_range = PushConstantRange::default()
+            .offset(0)
+            .stage_flags(vk::ShaderStageFlags::COMPUTE)
+            .size(size_of::<BitonicPushConstants>() as u32);
+
+        // Pipeline
+        let pipeline = renderer.pipeline_store().insert(PipelineConfig {
+            shader_path: "shaders/bitonic_merge.comp".into(),
+            descriptor_set_layouts: vec![
+                descriptorset.clone(),
+            ],
+            push_constant_ranges: vec![
+                push_constant_range
+            ],
+            macros: Default::default(),
+        }).expect("Failed to create pipeline");
+
+        self.sort_pipeline = Some(SortPipeline{
+            pipeline,
+            descriptorsetlayout: descriptorset.clone(),
+        })
+    }
 }
 
 impl RenderComponent for PhysicsComponent {
@@ -228,6 +283,8 @@ impl RenderComponent for PhysicsComponent {
                 position: Vec3::new(random::<f32>(), random::<f32>(), random::<f32>()) * 0.2 - 0.1,
                 // position: Vec3::new(1., 1., 1.) * i as f32 / self.node_count as f32 * 0.2 - 0.1,
                 edge_index: 0,
+                // cell_index: 0,
+                // rest: IVec3::ZERO,
             };
         }
 
@@ -259,7 +316,7 @@ impl RenderComponent for PhysicsComponent {
             .size(size_of::<PushConstants>() as u32);
 
         // Pipeline
-        let pipeline = renderer.pipeline_store().insert(PipelineConfig {
+        let pipeline = match renderer.pipeline_store().insert(PipelineConfig {
             shader_path: "shaders/physics.comp".into(),
             descriptor_set_layouts: vec![
                 descriptorset.clone(),
@@ -268,7 +325,13 @@ impl RenderComponent for PhysicsComponent {
                 push_constant_range
             ],
             macros: Default::default(),
-        }).expect("Failed to create pipeline");
+        }) {
+            Ok(x) => x,
+            Err(ShaderCompilation(x)) => {
+                error!("Failed to create pipeline\n{}", x);
+                exit(1);
+            },
+        };
 
         self.pipeline = Some(pipeline);
         self.descriptorsetlayout = Some(descriptorset);
@@ -319,7 +382,7 @@ impl RenderComponent for PhysicsComponent {
             bytemuck::bytes_of(&push_constants)
         );
 
-        let dispatches = self.node_count.div_ceil(16);
+        let dispatches = self.node_count.div_ceil(128);
         command_buffer.dispatch(dispatches as u32, 1, 1 );
 
         // Node positioning
@@ -344,7 +407,7 @@ impl RenderComponent for PhysicsComponent {
             bytemuck::bytes_of(&push_constants)
         );
 
-        let dispatches = self.node_count.div_ceil(16);
+        let dispatches = self.node_count.div_ceil(128);
         command_buffer.dispatch(dispatches as u32, 1, 1 );
     }
 }
