@@ -14,14 +14,17 @@ layout(std430, binding = 1 ) buffer LocationsOut {
 } node_buffer_out;
 
 /* A buffer with all nodes contained by the cells */
+struct Lookup {
+    int node_id;
+    int cell_id;
+};
 layout(std430, binding = 2 ) buffer SpatialOrdering {
-    int nodes[];
+    Lookup lookup[];
 } spatial_ordering;
 
 /* Maps a cell-id to the respective nodes index, as well as element count */
 struct CellLookup {
     int order_index;
-    int element_count;
 };
 layout(std430, binding = 3 ) buffer SpatialLookup {
     CellLookup cells[];
@@ -56,7 +59,15 @@ void main()
     force += -normalize(n1.p.xyz) * length(n1.p.xyz) * length(n1.p.xyz) * 0.0000001;
 
     if( length( n1.p.xyz + force ) > 1. ) {
-        node_buffer_out.nodes[id].p = vec4( normalize(n1.p.xyz + force) * .01, 0.);
+        // node_buffer_out.nodes[id].p = vec4( normalize(n1.p.xyz + force) * .01, 0.);
+        return;
     }
-    node_buffer_out.nodes[id].p = n1.p + vec4(force, 0);
+    vec4 new_pos = n1.p + vec4(force, 0);
+    node_buffer_out.nodes[id].p = new_pos;
+
+    // Calculate the cell index and store in the lookup table
+    ivec3 cell_pos = ivec3(new_pos * 100.);
+    int cell_id = 53 * cell_pos.x + 97 * cell_pos.y + 193 * cell_pos.z;
+    cell_id %= 100000;
+    spatial_ordering.lookup[id] = Lookup(id, cell_id);
 }

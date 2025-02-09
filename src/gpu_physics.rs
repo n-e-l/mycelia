@@ -49,13 +49,7 @@ struct Order {
     edge_index: u32,
 }
 
-struct SortPipeline {
-    descriptorsetlayout: DescriptorSetLayout,
-    pipeline: PipelineKey,
-}
-
-struct EdgePipeline {
-    edge_buffer: Buffer,
+struct Pipeline {
     descriptorsetlayout: DescriptorSetLayout,
     pipeline: PipelineKey,
 }
@@ -65,12 +59,13 @@ pub struct PhysicsComponent {
     edge_count: usize,
     node_buffer_a: Option<Buffer>,
     node_buffer_b: Option<Buffer>,
+    edge_buffer: Option<Buffer>,
     order_buffer: Option<Buffer>,
     lookup_buffer: Option<Buffer>,
     descriptorsetlayout: Option<DescriptorSetLayout>,
-    pipeline: Option<PipelineKey>,
-    edge_pipeline: Option<EdgePipeline>,
-    sort_pipeline: Option<SortPipeline>,
+    physics_pipeline: Option<Pipeline>,
+    edge_pipeline: Option<Pipeline>,
+    sort_pipeline: Option<Pipeline>,
     repulsion: f32,
     pub edge_attraction: f32,
 }
@@ -103,9 +98,10 @@ impl PhysicsComponent {
             edge_attraction: 0.2,
             node_buffer_a: None,
             node_buffer_b: None,
+            edge_buffer: None,
             order_buffer: None,
             lookup_buffer: None,
-            pipeline: None,
+            physics_pipeline: None,
             edge_pipeline: None,
             sort_pipeline: None,
             descriptorsetlayout: None,
@@ -136,7 +132,7 @@ impl PhysicsComponent {
     }
 
     pub fn edge_buffer(&self) -> DescriptorBufferInfo {
-        self.edge_pipeline.as_ref().unwrap().edge_buffer.binding()
+        self.edge_buffer.as_ref().unwrap().binding()
     }
 
     pub fn node_count(&self) -> usize {
@@ -152,6 +148,39 @@ impl PhysicsComponent {
     }
 
     fn create_buffers(&mut self, renderer: &mut Renderer) {
+
+        let mut node_buffer_a = Buffer::new(
+            &renderer.device,
+            &mut renderer.allocator,
+            MemoryLocation::CpuToGpu,
+            (size_of::<Node>() * self.node_count) as DeviceSize,
+            BufferUsageFlags::STORAGE_BUFFER
+        );
+
+        let mut node_buffer_b = Buffer::new(
+            &renderer.device,
+            &mut renderer.allocator,
+            MemoryLocation::CpuToGpu,
+            (size_of::<Node>() * self.node_count) as DeviceSize,
+            BufferUsageFlags::STORAGE_BUFFER
+        );
+
+        // Copy start positions to node buffer
+        let (_, node_mem, _) = unsafe { node_buffer_a.mapped().align_to_mut::<Node>() };
+        for i in 0..self.node_count {
+            node_mem[i] = Node {
+                position: Vec4::new(random::<f32>(), random::<f32>(), random::<f32>(), 0.) * 0.2 - 0.1,
+                edge_id: 0,
+                cell_id: 0,
+                unused1: 0,
+                unused2: 0
+                // position: Vec3::new(1., 1., 1.) * i as f32 / self.node_count as f32 * 0.2 - 0.1,
+            };
+        }
+
+        self.node_buffer_a = Some(node_buffer_a);
+        self.node_buffer_b = Some(node_buffer_b);
+
         let mut lookup_buffer = Buffer::new(
             &renderer.device,
             &mut renderer.allocator,
@@ -168,11 +197,6 @@ impl PhysicsComponent {
             BufferUsageFlags::STORAGE_BUFFER
         );
 
-        self.lookup_buffer = Some(lookup_buffer);
-        self.order_buffer = Some(ordering_buffer);
-    }
-
-    fn create_edge_pipeline(&mut self, renderer: &mut Renderer) {
         let mut edge_buffer = Buffer::new(
             &renderer.device,
             &mut renderer.allocator,
@@ -225,6 +249,12 @@ impl PhysicsComponent {
             node_mem_b[i] = node_mem[i];
         });
 
+        self.lookup_buffer = Some(lookup_buffer);
+        self.order_buffer = Some(ordering_buffer);
+        self.edge_buffer = Some(edge_buffer);
+    }
+
+    fn create_edge_pipeline(&mut self, renderer: &mut Renderer) {
         // Layout
         let layout_bindings = &[
             vk::DescriptorSetLayoutBinding::default()
@@ -256,11 +286,53 @@ impl PhysicsComponent {
         // Pipeline
         let pipeline = Self::load_pipeline(renderer, "shaders/physics_edges.comp", descriptorset.clone(), push_constant_range);
 
-        self.edge_pipeline = Some(EdgePipeline{
+        self.edge_pipeline = Some(Pipeline{
             pipeline,
-            edge_buffer,
             descriptorsetlayout: descriptorset.clone(),
         })
+    }
+
+    fn create_physics_pipeline(&mut self, renderer: &mut Renderer) {
+        // Layout
+        let layout_bindings = &[
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(0)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(1)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(2)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(3)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+        ];
+        let descriptorset = DescriptorSetLayout::new_push_descriptor(
+            &renderer.device,
+            layout_bindings
+        );
+
+        let push_constant_range = PushConstantRange::default()
+            .offset(0)
+            .stage_flags(vk::ShaderStageFlags::COMPUTE)
+            .size(size_of::<PushConstants>() as u32);
+
+        // Pipeline
+        let pipeline = Self::load_pipeline(renderer, "shaders/physics.comp", descriptorset.clone(), push_constant_range);
+
+        self.physics_pipeline = Some(Pipeline {
+            pipeline,
+            descriptorsetlayout: descriptorset
+        });
     }
 
     fn create_sort_pipeline(&mut self, renderer: &mut Renderer) {
@@ -281,6 +353,11 @@ impl PhysicsComponent {
                 .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
                 .descriptor_count(1)
                 .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(3)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
         ];
         let descriptorset = DescriptorSetLayout::new_push_descriptor(
             &renderer.device,
@@ -295,7 +372,7 @@ impl PhysicsComponent {
         // Pipeline
         let pipeline = Self::load_pipeline(renderer, "shaders/bitonic_merge.comp", descriptorset.clone(), push_constant_range);
 
-        self.sort_pipeline = Some(SortPipeline{
+        self.sort_pipeline = Some(Pipeline{
             pipeline,
             descriptorsetlayout: descriptorset.clone(),
         })
@@ -304,80 +381,13 @@ impl PhysicsComponent {
 
 impl RenderComponent for PhysicsComponent {
     fn initialize(&mut self, renderer: &mut Renderer) {
-
         self.create_buffers(renderer);
-
-        let mut node_buffer_a = Buffer::new(
-            &renderer.device,
-            &mut renderer.allocator,
-            MemoryLocation::CpuToGpu,
-            (size_of::<Node>() * self.node_count) as DeviceSize,
-            BufferUsageFlags::STORAGE_BUFFER
-        );
-
-        let mut node_buffer_b = Buffer::new(
-            &renderer.device,
-            &mut renderer.allocator,
-            MemoryLocation::CpuToGpu,
-            (size_of::<Node>() * self.node_count) as DeviceSize,
-            BufferUsageFlags::STORAGE_BUFFER
-        );
-
-        // Copy start positions to node buffer
-        let (_, node_mem, _) = unsafe { node_buffer_a.mapped().align_to_mut::<Node>() };
-        for i in 0..self.node_count {
-            node_mem[i] = Node {
-                position: Vec4::new(random::<f32>(), random::<f32>(), random::<f32>(), 0.) * 0.2 - 0.1,
-                edge_id: 0,
-                cell_id: 0,
-                unused1: 0,
-                unused2: 0
-                // position: Vec3::new(1., 1., 1.) * i as f32 / self.node_count as f32 * 0.2 - 0.1,
-            };
-        }
-
-        self.node_buffer_a = Some(node_buffer_a);
-        self.node_buffer_b = Some(node_buffer_b);
+        self.create_physics_pipeline(renderer);
         self.create_edge_pipeline(renderer);
-
         self.create_sort_pipeline(renderer);
-
-        // Layout
-        let layout_bindings = &[
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(0)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
-            vk::DescriptorSetLayoutBinding::default()
-                .binding(1)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .descriptor_count(1)
-                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
-        ];
-        let descriptorset = DescriptorSetLayout::new_push_descriptor(
-            &renderer.device,
-            layout_bindings
-        );
-
-        let push_constant_range = PushConstantRange::default()
-            .offset(0)
-            .stage_flags(vk::ShaderStageFlags::COMPUTE)
-            .size(size_of::<PushConstants>() as u32);
-
-        // Pipeline
-        let pipeline = Self::load_pipeline(renderer, "shaders/physics.comp", descriptorset.clone(), push_constant_range);
-
-        self.pipeline = Some(pipeline);
-        self.descriptorsetlayout = Some(descriptorset);
     }
 
     fn render(&mut self, renderer: &mut Renderer, command_buffer: &mut CommandBuffer, swapchain_image: &Image, swapchain_image_view: &ImageView) {
-
-        // Edge pull
-        let compute = renderer.pipeline_store().get(self.edge_pipeline.as_ref().unwrap().pipeline).unwrap();
-
-        command_buffer.bind_pipeline(&compute);
 
         let buffer_bindings_a = [self.node_buffer_a.as_ref().unwrap().binding()];
         let buffer_write_descriptor_set_a = WriteDescriptorSet::default()
@@ -393,51 +403,59 @@ impl RenderComponent for PhysicsComponent {
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
             .buffer_info(&buffer_bindings_b);
 
-        let edge_buffer_bindings = [self.edge_pipeline.as_ref().unwrap().edge_buffer.binding()];
+        let edge_buffer_bindings = [self.edge_buffer.as_ref().unwrap().binding()];
         let edge_buffer_write_descriptor_set = WriteDescriptorSet::default()
             .dst_binding(2)
             .dst_array_element(0)
             .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
             .buffer_info(&edge_buffer_bindings);
 
-        command_buffer.bind_push_descriptor(
-            &compute,
-            0,
-            &[buffer_write_descriptor_set_a, buffer_write_descriptor_set_b, edge_buffer_write_descriptor_set]
-        );
+        let buffer_bindings_ordering = [self.order_buffer.as_ref().unwrap().binding()];
+        let buffer_write_descriptor_set_ordering = WriteDescriptorSet::default()
+            .dst_binding(2)
+            .dst_array_element(0)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&buffer_bindings_ordering);
 
-        let push_constants = PushConstants {
-            nodes: self.node_count as u32,
-            repulsion: self.edge_attraction,
-        };
-        command_buffer.push_constants(
-            &compute,
-            ShaderStageFlags::COMPUTE,
-            0,
-            bytemuck::bytes_of(&push_constants)
-        );
+        let buffer_bindings_lookup = [self.lookup_buffer.as_ref().unwrap().binding()];
+        let buffer_write_descriptor_set_lookup = WriteDescriptorSet::default()
+            .dst_binding(3)
+            .dst_array_element(0)
+            .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+            .buffer_info(&buffer_bindings_lookup);
 
-        let dispatches = self.node_count.div_ceil(128);
-        command_buffer.dispatch(dispatches as u32, 1, 1 );
+
+        // Edge physics
+        {
+            let compute = renderer.pipeline_store().get(self.edge_pipeline.as_ref().unwrap().pipeline).unwrap();
+
+            command_buffer.bind_pipeline(&compute);
+
+            command_buffer.bind_push_descriptor(
+                &compute,
+                0,
+                &[buffer_write_descriptor_set_a, buffer_write_descriptor_set_b, edge_buffer_write_descriptor_set]
+            );
+
+            let push_constants = PushConstants {
+                nodes: self.node_count as u32,
+                repulsion: self.edge_attraction,
+            };
+            command_buffer.push_constants(
+                &compute,
+                ShaderStageFlags::COMPUTE,
+                0,
+                bytemuck::bytes_of(&push_constants)
+            );
+
+            let dispatches = self.node_count.div_ceil(128);
+            command_buffer.dispatch(dispatches as u32, 1, 1 );
+        }
 
         // Node sorting
         {
             let compute = renderer.pipeline_store().get(self.sort_pipeline.as_ref().unwrap().pipeline).unwrap();
             command_buffer.bind_pipeline(&compute);
-
-            let buffer_bindings_ordering = [self.order_buffer.as_ref().unwrap().binding()];
-            let buffer_write_descriptor_set_ordering = WriteDescriptorSet::default()
-                .dst_binding(1)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(&buffer_bindings_ordering);
-
-            let buffer_bindings_lookup = [self.lookup_buffer.as_ref().unwrap().binding()];
-            let buffer_write_descriptor_set_lookup = WriteDescriptorSet::default()
-                .dst_binding(2)
-                .dst_array_element(0)
-                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
-                .buffer_info(&buffer_bindings_lookup);
 
             let dispatches = self.node_count.div_ceil(128);
             let next_power_of_two = (self.node_count as f32).log2().ceil() as usize;
@@ -459,30 +477,31 @@ impl RenderComponent for PhysicsComponent {
             }
         }
 
+        // Node physics
+        {
+            let compute = renderer.pipeline_store().get(self.physics_pipeline.as_ref().unwrap().pipeline).unwrap();
 
-        // Node positioning
-        let compute = renderer.pipeline_store().get(self.pipeline.unwrap()).unwrap();
+            command_buffer.bind_pipeline(&compute);
 
-        command_buffer.bind_pipeline(&compute);
+            command_buffer.bind_push_descriptor(
+                &compute,
+                0,
+                &[buffer_write_descriptor_set_a, buffer_write_descriptor_set_b, buffer_write_descriptor_set_ordering, buffer_write_descriptor_set_lookup]
+            );
 
-        command_buffer.bind_push_descriptor(
-            &compute,
-            0,
-            &[buffer_write_descriptor_set_a, buffer_write_descriptor_set_b]
-        );
+            let push_constants = PushConstants {
+                nodes: self.node_count as u32,
+                repulsion: self.repulsion,
+            };
+            command_buffer.push_constants(
+                &compute,
+                ShaderStageFlags::COMPUTE,
+                0,
+                bytemuck::bytes_of(&push_constants)
+            );
 
-        let push_constants = PushConstants {
-            nodes: self.node_count as u32,
-            repulsion: self.repulsion,
-        };
-        command_buffer.push_constants(
-            &compute,
-            ShaderStageFlags::COMPUTE,
-            0,
-            bytemuck::bytes_of(&push_constants)
-        );
-
-        let dispatches = self.node_count.div_ceil(128);
-        command_buffer.dispatch(dispatches as u32, 1, 1 );
+            let dispatches = self.node_count.div_ceil(128);
+            command_buffer.dispatch(dispatches as u32, 1, 1 );
+        }
     }
 }

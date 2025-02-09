@@ -11,7 +11,7 @@ layout(std430, binding = 0 ) buffer LocationsIn {
 } node_buffer_in;
 
 /* A buffer with all nodes contained by the cells */
-layout(std430, binding = 1 ) buffer SpatialOrdering {
+layout(std430, binding = 2 ) buffer SpatialOrdering {
     int nodes[];
 } spatial_ordering;
 
@@ -20,7 +20,7 @@ struct CellLookup {
     int order_index;
     int element_count;
 };
-layout(std430, binding = 2 ) buffer SpatialLookup {
+layout(std430, binding = 3 ) buffer SpatialLookup {
     CellLookup cells[];
 } spatial_lookup;
 
