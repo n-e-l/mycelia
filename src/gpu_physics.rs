@@ -67,6 +67,7 @@ pub struct PhysicsComponent {
     descriptorsetlayout: Option<DescriptorSetLayout>,
     physics_pipeline: Option<Pipeline>,
     edge_pipeline: Option<Pipeline>,
+    lookup_pipeline: Option<Pipeline>,
     sort_pipeline: Option<Pipeline>,
     repulsion: f32,
     pub edge_attraction: f32,
@@ -95,8 +96,8 @@ struct BitonicPushConstants {
 impl PhysicsComponent {
     pub(crate) fn new() -> Self {
         Self {
-            node_count: 200,
-            edge_count: 180,
+            node_count: 40000,
+            edge_count: 38000,
             repulsion: 0.2,
             edge_attraction: 0.2,
             node_buffer_a: None,
@@ -107,6 +108,7 @@ impl PhysicsComponent {
             physics_pipeline: None,
             edge_pipeline: None,
             sort_pipeline: None,
+            lookup_pipeline: None,
             descriptorsetlayout: None,
         }
     }
@@ -152,7 +154,7 @@ impl PhysicsComponent {
 
     fn create_buffers(&mut self, renderer: &mut Renderer) {
 
-        let mut rng = StdRng::seed_from_u64(324123451135u64);
+        let mut rng = StdRng::seed_from_u64(3243451135u64);
 
         let mut node_buffer_a = Buffer::new(
             &renderer.device,
@@ -191,7 +193,7 @@ impl PhysicsComponent {
             &mut renderer.allocator,
             MemoryLocation::CpuToGpu,
             (size_of::<Lookup>() * 100000) as DeviceSize,
-            BufferUsageFlags::STORAGE_BUFFER
+            BufferUsageFlags::STORAGE_BUFFER | BufferUsageFlags::TRANSFER_DST
         );
 
         let mut ordering_buffer = Buffer::new(
@@ -341,6 +343,49 @@ impl PhysicsComponent {
         });
     }
 
+    fn create_lookup_pipeline(&mut self, renderer: &mut Renderer) {
+        // Layout
+        let layout_bindings = &[
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(0)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(1)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(2)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+            vk::DescriptorSetLayoutBinding::default()
+                .binding(3)
+                .descriptor_type(vk::DescriptorType::STORAGE_BUFFER)
+                .descriptor_count(1)
+                .stage_flags(vk::ShaderStageFlags::COMPUTE ),
+        ];
+        let descriptorset = DescriptorSetLayout::new_push_descriptor(
+            &renderer.device,
+            layout_bindings
+        );
+
+        let push_constant_range = PushConstantRange::default()
+            .offset(0)
+            .stage_flags(vk::ShaderStageFlags::COMPUTE)
+            .size(size_of::<BitonicPushConstants>() as u32);
+
+        // Pipeline
+        let pipeline = Self::load_pipeline(renderer, "shaders/lookup_index.comp", descriptorset.clone(), push_constant_range);
+
+        self.lookup_pipeline = Some(Pipeline{
+            pipeline,
+            descriptorsetlayout: descriptorset.clone(),
+        })
+    }
+
     fn create_sort_pipeline(&mut self, renderer: &mut Renderer) {
         // Layout
         let layout_bindings = &[
@@ -390,6 +435,7 @@ impl RenderComponent for PhysicsComponent {
         self.create_buffers(renderer);
         self.create_physics_pipeline(renderer);
         self.create_edge_pipeline(renderer);
+        self.create_lookup_pipeline(renderer);
         self.create_sort_pipeline(renderer);
     }
 
@@ -498,6 +544,49 @@ impl RenderComponent for PhysicsComponent {
             }
         }
 
+        // Lookup buffer
+        {
+            // Fill with zeros
+            command_buffer.fill_buffer(
+                self.lookup_buffer.as_ref().unwrap(),
+                0,
+                self.lookup_buffer.as_ref().unwrap().size,
+                9999999
+            );
+
+            command_buffer.buffer_barrier(
+                vk::PipelineStageFlags::TRANSFER,
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::AccessFlags::TRANSFER_WRITE,
+                vk::AccessFlags::SHADER_READ,
+                vk::DependencyFlags::default(),
+                self.lookup_buffer.as_ref().unwrap().size,
+                0,
+                self.lookup_buffer.as_ref().unwrap()
+            );
+
+            // Calculate the lookups
+            let compute = renderer.pipeline_store().get(self.lookup_pipeline.as_ref().unwrap().pipeline).unwrap();
+            command_buffer.bind_pipeline(&compute);
+
+            command_buffer.bind_push_descriptor(
+                &compute,
+                0,
+                &[buffer_write_descriptor_set_a, buffer_write_descriptor_set_ordering, buffer_write_descriptor_set_lookup]
+            );
+
+            let bitonic_push = BitonicPushConstants {
+                node_count: self.node_count as u32,
+                group_width: 0,
+                group_heigth: 0,
+                step_index: 0,
+            };
+            command_buffer.push_constants(&compute, ShaderStageFlags::COMPUTE, 0, bytemuck::bytes_of(&bitonic_push));
+
+            let dispatches = self.node_count.div_ceil(128);
+            command_buffer.dispatch(dispatches as u32, 1, 1);
+        }
+
         // Node physics
         {
             let compute = renderer.pipeline_store().get(self.physics_pipeline.as_ref().unwrap().pipeline).unwrap();
@@ -526,6 +615,10 @@ impl RenderComponent for PhysicsComponent {
 
             // unsafe {
             //     static mut N: i32 = 0;
+            //     if N == 0 {
+            //
+            //         command_buffer.dispatch(dispatches as u32, 1, 1 );
+            //     }
             //     if N == 9 {
             //         // Test: Print the ordering lookup
             //         let (_, mapping, _) = unsafe { self.order_buffer.as_mut().unwrap().mapped().align_to::<Ordering>() };
@@ -539,6 +632,12 @@ impl RenderComponent for PhysicsComponent {
             //         let (_, mapping, _) = unsafe { self.order_buffer.as_mut().unwrap().mapped().align_to::<Ordering>() };
             //         for i in 0..self.node_count {
             //             println!("{:?}", mapping[i]);
+            //         }
+            //         println!("---------");
+            //         // Test: Print the lookup lookup
+            //         let (_, mapping, _) = unsafe { self.lookup_buffer.as_mut().unwrap().mapped().align_to::<u32>() };
+            //         for i in 0..1000 {
+            //             println!("{}, {:?}", i, mapping[i]);
             //         }
             //         println!("---------");
             //         exit(0);

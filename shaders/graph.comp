@@ -60,5 +60,5 @@ void main()
         circle( pos.xy, 1. / d * 4., color);
     }
 
-    circle( pos.xy, 1. / d * 0.5, color);
+    circle( pos.xy, 1. / d * 10.5, color);
 }

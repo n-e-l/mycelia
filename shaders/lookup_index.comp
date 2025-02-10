@@ -21,8 +21,7 @@ layout(std430, binding = 2 ) buffer SpatialOrdering {
 
 /* Maps a cell-id to the respective nodes index, as well as element count */
 struct CellLookup {
-    int order_index;
-    int element_count;
+    uint order_index;
 };
 layout(std430, binding = 3 ) buffer SpatialLookup {
     CellLookup cells[];
@@ -41,23 +40,18 @@ void main()
     ivec2 p = ivec2( gl_GlobalInvocationID.xy );
     int id = p.x;
 
-    // Algorithm comes from Sebastian Lague
-    // https://www.youtube.com/watch?v=rSKMYc1CQHE&t=1478s
+    if( id >= constants.node_count - 1 ) return;
 
-    uint i = id;
-    uint h = i & (constants.group_width - 1);
-    uint index_low = h + (constants.group_height + 1) * ( i / constants.group_width );
-    uint index_high = index_low + (constants.step_index == 0 ? constants.group_height - 2 * h : (constants.group_height + 1) / 2);
+    Ordering value_low = spatial_ordering.lookup[id];
+    Ordering value_high = spatial_ordering.lookup[id + 1];
 
+    if( id == 0 ) {
+        spatial_lookup.cells[value_low.cell_id].order_index = 0;
+    }
 
-    if( index_high >= constants.node_count ) return;
-
-    Ordering value_low = spatial_ordering.lookup[index_low];
-    Ordering value_high = spatial_ordering.lookup[index_high];
-
-    if( value_low.cell_id > value_high.cell_id ) {
-        spatial_ordering.lookup[index_low] = value_high;
-        spatial_ordering.lookup[index_high] = value_low;
+    if( value_low.cell_id != value_high.cell_id )
+    {
+        spatial_lookup.cells[value_high.cell_id].order_index = id + 1;
     }
 
 }
