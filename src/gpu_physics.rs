@@ -96,8 +96,8 @@ struct BitonicPushConstants {
 impl PhysicsComponent {
     pub(crate) fn new() -> Self {
         Self {
-            node_count: 40000,
-            edge_count: 38000,
+            node_count: 50000,
+            edge_count: 1,
             repulsion: 0.2,
             edge_attraction: 0.2,
             node_buffer_a: None,

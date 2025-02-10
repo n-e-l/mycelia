@@ -36,6 +36,15 @@ layout( push_constant ) uniform PushConstants
     float repulsion;
 } constants;
 
+int cell_hash(ivec3 p) {
+    int cell_id = 53 * p.x + 97 * p.y + 193 * p.z;
+    return cell_id - ( 100000 * int(floor( cell_id / 100000. )));
+}
+
+ivec3 cell_index_world(vec3 p) {
+    return ivec3(p * 0.5 / constants.repulsion);
+}
+
 void main()
 {
     ivec2 p = ivec2( gl_GlobalInvocationID.xy );
@@ -46,17 +55,39 @@ void main()
     vec3 force = vec3(0);
     Node n1 = node_buffer_in.nodes[id];
 
-    for( int i = 0; i < constants.nodes; i++ ) {
-        Node n2 = node_buffer_in.nodes[i];
+    ivec3 cell_pos = cell_index_world(n1.p.xyz);
+    for( int x = -1; x <= 1; x++ )
+    {
+        for (int y = -1; y <= 1; y++)
+        {
+            for (int z = -1; z <= 1; z++)
+            {
+                int cell_id = cell_hash(ivec3(cell_pos.x + x, cell_pos.y + y, cell_pos.z + z ));
 
-        vec3 diff = n2.p.xyz - n1.p.xyz;
-        float l = length(diff);
-        if( l >= 0.001 ) {
-            force -= normalize(diff) * 0.0000001 * constants.repulsion * constants.repulsion / (l * l);
+                int lookup_id = spatial_lookup.cells[cell_id].order_index;
+                if( lookup_id == 9999999 ) continue; // No nodes in cell
+
+                Ordering o = spatial_ordering.lookup[ lookup_id ];
+
+                // Compare against elements in cell
+                while( o.cell_id == cell_id )
+                {
+                    Node n2 = node_buffer_in.nodes[o.node_id];
+
+                    vec3 diff = n2.p.xyz - n1.p.xyz;
+                    float l = length(diff);
+                    if( l >= 0.001 ) {
+                        force -= normalize(diff) * 0.0000001 * constants.repulsion * constants.repulsion / (l * l);
+                    }
+
+                    lookup_id += 1;
+                    o = spatial_ordering.lookup[ lookup_id ];
+                }
+            }
         }
     }
 
-    force += -normalize(n1.p.xyz) * length(n1.p.xyz) * length(n1.p.xyz) * 0.0000001;
+    force += -normalize(n1.p.xyz) * length(n1.p.xyz) * length(n1.p.xyz) * 0.01;
 
     if( length( n1.p.xyz + force ) > 1. ) {
         // node_buffer_out.nodes[id].p = vec4( normalize(n1.p.xyz + force) * .01, 0.);
@@ -66,8 +97,5 @@ void main()
     node_buffer_out.nodes[id].p = new_pos;
 
     // Calculate the cell index and store in the lookup table
-    ivec3 cell_pos = ivec3(new_pos * 100.);
-    int cell_id = 53 * cell_pos.x + 97 * cell_pos.y + 193 * cell_pos.z;
-    cell_id = cell_id - ( 100000 * int(floor( cell_id / 100000. )));
-    spatial_ordering.lookup[id] = Ordering(id, cell_id);
+    spatial_ordering.lookup[id] = Ordering(id, cell_hash(cell_index_world(new_pos.xyz)));
 }
