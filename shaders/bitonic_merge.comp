@@ -11,8 +11,12 @@ layout(std430, binding = 0 ) buffer LocationsIn {
 } node_buffer_in;
 
 /* A buffer with all nodes contained by the cells */
+struct Ordering {
+    uint node_id;
+    uint cell_id;
+};
 layout(std430, binding = 2 ) buffer SpatialOrdering {
-    int nodes[];
+    Ordering lookup[];
 } spatial_ordering;
 
 /* Maps a cell-id to the respective nodes index, as well as element count */
@@ -26,9 +30,10 @@ layout(std430, binding = 3 ) buffer SpatialLookup {
 
 layout( push_constant ) uniform PushConstants
 {
-    int node_count;
-    int group_width;
-    int step_index;
+    uint node_count;
+    uint group_width;
+    uint group_height;
+    uint step_index;
 } constants;
 
 void main()
@@ -36,7 +41,20 @@ void main()
     ivec2 p = ivec2( gl_GlobalInvocationID.xy );
     int id = p.x;
 
-    if( id >= constants.node_count ) return;
+    uint i = id;
+    uint h = i & (constants.group_width - 1);
+    uint index_low = h + (constants.group_height + 1) * ( i / constants.group_width );
+    uint index_high = index_low + (constants.step_index == 0 ? constants.group_height - 2 * h : (constants.group_height + 1) / 2);
 
-    //Node n1 = node_buffer_in.nodes[id];
+
+    if( index_high >= constants.node_count ) return;
+
+    Ordering value_low = spatial_ordering.lookup[index_low];
+    Ordering value_high = spatial_ordering.lookup[index_high];
+
+    if( value_low.cell_id > value_high.cell_id ) {
+        spatial_ordering.lookup[index_low] = value_high;
+        spatial_ordering.lookup[index_high] = value_low;
+    }
+
 }

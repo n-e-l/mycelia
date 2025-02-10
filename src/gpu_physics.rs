@@ -1,3 +1,4 @@
+use std::ops::Div;
 use std::process::exit;
 use ash::vk;
 use ash::vk::{BufferUsageFlags, DescriptorBufferInfo, DeviceSize, Image, ImageView, PushConstantRange, ShaderStageFlags, WriteDescriptorSet};
@@ -10,8 +11,9 @@ use cen::vulkan::PipelineErr::ShaderCompilation;
 use glam::{IVec3, IVec4, Vec3, Vec4};
 use gpu_allocator::MemoryLocation;
 use petgraph::matrix_graph::Nullable;
-use rand::random;
+use rand::{random, Rng, SeedableRng};
 use log::error;
+use rand::rngs::StdRng;
 
 #[derive(Debug)]
 #[derive(Copy, Clone)]
@@ -34,8 +36,8 @@ struct Edge {
 #[derive(Debug)]
 #[derive(Copy, Clone)]
 struct Ordering {
-    node_id: u32,
-    cell_id: u32,
+    node_id: i32,
+    cell_id: i32,
 }
 
 #[derive(Debug)]
@@ -86,14 +88,15 @@ struct PushConstants {
 struct BitonicPushConstants {
     node_count: u32,
     group_width: u32,
+    group_heigth: u32,
     step_index: u32,
 }
 
 impl PhysicsComponent {
     pub(crate) fn new() -> Self {
         Self {
-            node_count: 12000,
-            edge_count: 10000,
+            node_count: 200,
+            edge_count: 180,
             repulsion: 0.2,
             edge_attraction: 0.2,
             node_buffer_a: None,
@@ -149,6 +152,8 @@ impl PhysicsComponent {
 
     fn create_buffers(&mut self, renderer: &mut Renderer) {
 
+        let mut rng = StdRng::seed_from_u64(324123451135u64);
+
         let mut node_buffer_a = Buffer::new(
             &renderer.device,
             &mut renderer.allocator,
@@ -169,7 +174,7 @@ impl PhysicsComponent {
         let (_, node_mem, _) = unsafe { node_buffer_a.mapped().align_to_mut::<Node>() };
         for i in 0..self.node_count {
             node_mem[i] = Node {
-                position: Vec4::new(random::<f32>(), random::<f32>(), random::<f32>(), 0.) * 0.2 - 0.1,
+                position: Vec4::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>(), 0.) * 0.2 - 0.1,
                 edge_id: 0,
                 cell_id: 0,
                 unused1: 0,
@@ -185,7 +190,7 @@ impl PhysicsComponent {
             &renderer.device,
             &mut renderer.allocator,
             MemoryLocation::CpuToGpu,
-            (size_of::<Lookup>() * self.node_count) as DeviceSize,
+            (size_of::<Lookup>() * 100000) as DeviceSize,
             BufferUsageFlags::STORAGE_BUFFER
         );
 
@@ -193,7 +198,7 @@ impl PhysicsComponent {
             &renderer.device,
             &mut renderer.allocator,
             MemoryLocation::CpuToGpu,
-            (size_of::<Ordering>() * 100000) as DeviceSize,
+            (size_of::<Ordering>() * self.node_count) as DeviceSize,
             BufferUsageFlags::STORAGE_BUFFER
         );
 
@@ -209,7 +214,7 @@ impl PhysicsComponent {
         let mut edges = vec![Edge {node0: 0, node1: 1}];
         for i in 0..self.edge_count {
             edges.push(Edge {
-                node0: edges[(random::<u32>() % edges.len() as u32) as usize].node1,
+                node0: edges[(rng.gen::<u32>() % edges.len() as u32) as usize].node1,
                 node1: edges.len() as u32 - 1,
             });
         };
@@ -234,13 +239,14 @@ impl PhysicsComponent {
         // Set node positions to zero
         let (_, node_mem, _) = unsafe { self.node_buffer_a.as_mut().unwrap().mapped().align_to_mut::<Node>() };
         node_mem.iter_mut().enumerate().rev().for_each(|(i, node)| {
-            node.position = Vec4::ZERO;
+            //node.position = Vec4::ZERO;
+            node.position = Vec4::new(rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, 1.);
         });
 
         // Update nodes
         edges.iter().enumerate().rev().for_each(|(i, edge)| {
             node_mem[edge.node0 as usize].edge_id = (i as u32 + 1) as i32;
-            node_mem[edge.node0 as usize].position = Vec4::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5, 1.);
+            node_mem[edge.node0 as usize].position = Vec4::new(rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, 1.);
         });
 
         // Copy buffer a into the backbuffer
@@ -457,22 +463,37 @@ impl RenderComponent for PhysicsComponent {
             let compute = renderer.pipeline_store().get(self.sort_pipeline.as_ref().unwrap().pipeline).unwrap();
             command_buffer.bind_pipeline(&compute);
 
-            let dispatches = self.node_count.div_ceil(128);
-            let next_power_of_two = (self.node_count as f32).log2().ceil() as usize;
-            for stage_index in 0..next_power_of_two {
+            command_buffer.bind_push_descriptor(
+                &compute,
+                0,
+                &[buffer_write_descriptor_set_a, buffer_write_descriptor_set_ordering, buffer_write_descriptor_set_lookup]
+            );
+
+            let dispatches = self.node_count.div(2).div_ceil(128);
+            let num_stages = (self.node_count as f32).log2().ceil() as usize;
+            for stage_index in 0..num_stages {
                 for step_index in 0..(stage_index+1) {
+
+                    let group_width = 1 << (stage_index - step_index);
                     let bitonic_push = BitonicPushConstants {
                         node_count: self.node_count as u32,
-                        group_width: 1 << (stage_index - step_index),
+                        group_width,
+                        group_heigth: group_width * 2 - 1,
                         step_index: step_index as u32,
                     };
                     command_buffer.push_constants(&compute, ShaderStageFlags::COMPUTE, 0, bytemuck::bytes_of(&bitonic_push));
-                    command_buffer.bind_push_descriptor(
-                        &compute,
-                        0,
-                        &[buffer_write_descriptor_set_a, buffer_write_descriptor_set_ordering, buffer_write_descriptor_set_lookup]
-                    );
                     command_buffer.dispatch(dispatches as u32, 1, 1);
+
+                    command_buffer.buffer_barrier(
+                        vk::PipelineStageFlags::COMPUTE_SHADER,
+                        vk::PipelineStageFlags::COMPUTE_SHADER,
+                        vk::AccessFlags::SHADER_READ,
+                        vk::AccessFlags::SHADER_WRITE,
+                        vk::DependencyFlags::default(),
+                        self.order_buffer.as_ref().unwrap().size,
+                        0,
+                        self.order_buffer.as_ref().unwrap()
+                    );
                 }
             }
         }
@@ -502,6 +523,28 @@ impl RenderComponent for PhysicsComponent {
 
             let dispatches = self.node_count.div_ceil(128);
             command_buffer.dispatch(dispatches as u32, 1, 1 );
+
+            // unsafe {
+            //     static mut N: i32 = 0;
+            //     if N == 9 {
+            //         // Test: Print the ordering lookup
+            //         let (_, mapping, _) = unsafe { self.order_buffer.as_mut().unwrap().mapped().align_to::<Ordering>() };
+            //         for i in 0..self.node_count {
+            //             println!("{:?}", mapping[i]);
+            //         }
+            //         println!("---------");
+            //     }
+            //     if N == 10 {
+            //         // Test: Print the ordering lookup
+            //         let (_, mapping, _) = unsafe { self.order_buffer.as_mut().unwrap().mapped().align_to::<Ordering>() };
+            //         for i in 0..self.node_count {
+            //             println!("{:?}", mapping[i]);
+            //         }
+            //         println!("---------");
+            //         exit(0);
+            //     }
+            //     N = N + 1;
+            // }
         }
     }
 }

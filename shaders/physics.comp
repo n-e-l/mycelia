@@ -14,12 +14,12 @@ layout(std430, binding = 1 ) buffer LocationsOut {
 } node_buffer_out;
 
 /* A buffer with all nodes contained by the cells */
-struct Lookup {
+struct Ordering {
     int node_id;
     int cell_id;
 };
 layout(std430, binding = 2 ) buffer SpatialOrdering {
-    Lookup lookup[];
+    Ordering lookup[];
 } spatial_ordering;
 
 /* Maps a cell-id to the respective nodes index, as well as element count */
@@ -68,6 +68,6 @@ void main()
     // Calculate the cell index and store in the lookup table
     ivec3 cell_pos = ivec3(new_pos * 100.);
     int cell_id = 53 * cell_pos.x + 97 * cell_pos.y + 193 * cell_pos.z;
-    cell_id %= 100000;
-    spatial_ordering.lookup[id] = Lookup(id, cell_id);
+    cell_id = cell_id - ( 100000 * int(floor( cell_id / 100000. )));
+    spatial_ordering.lookup[id] = Ordering(id, cell_id);
 }
