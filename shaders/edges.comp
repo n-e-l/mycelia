@@ -79,7 +79,6 @@ void dda_line( ivec2 p0, ivec2 p1, vec3 color )
 
 void main()
 {
-    return;
     ivec2 p = ivec2( gl_GlobalInvocationID.xy );
     ivec2 screenSize = imageSize( image );
 
@@ -90,6 +89,9 @@ void main()
 
     vec4 p1 = constants.transform * vec4(node_buffer.nodes[e.n0].p.xyz, 1);
     vec4 p2 = constants.transform * vec4(node_buffer.nodes[e.n1].p.xyz, 1);
+
+    if( p1.w < 0 || p2.w < 0) return;
+
     p1 /= p1.w;
     p2 /= p2.w;
 

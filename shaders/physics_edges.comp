@@ -58,10 +58,9 @@ void main()
         force /= i;
     }
 
-//    if( length( force ) < 1. ) {
-        node_buffer_out.nodes[id].p = n1.p;
-        node_buffer_out.nodes[id].v = n1.v;
-        node_buffer_out.nodes[id].n = n1.n;
-        node_buffer_out.nodes[id].i = n1.i;
-//    }
+    node_buffer_out.nodes[id] = n1;
+
+    if( length( force ) < 1. ) {
+        node_buffer_out.nodes[id].p += force;
+    }
 }

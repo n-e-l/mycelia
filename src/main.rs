@@ -18,8 +18,6 @@ use crate::renderer::{GraphRenderer, RenderNode};
 
 mod world;
 mod renderer;
-mod barnes_hut;
-mod barnes_hut_no_stack;
 mod gpu_physics;
 
 struct Application {
@@ -32,7 +30,6 @@ struct Application {
     camera_dist: f32,
     transform_pers: Mat4,
     perspective_camera: bool,
-    octree_mesh: Vec<(Vec4, Vec4)>
 }
 
 impl Application {
@@ -67,12 +64,10 @@ impl Application {
         let screen_transform = screen_translate * screen_scale;
 
         let world = World::new();
-        let octree_mesh = world.get_octree().mesh_lines();
 
         Self {
             physics_components: PhysicsComponent::new(),
             graph: Arc::new(Mutex::new(world)),
-            octree_mesh,
             camera_dist,
             graph_renderer: graph_renderer.clone(),
             screen_transform_ortho,
@@ -218,27 +213,11 @@ impl GuiComponent for Application {
                     Slider::new(lock.get_center_attraction_mut(), 0.0..=20200.0)
                 );
 
-                ui.label("Theta");
-                ui.add(
-                    Slider::new(lock.get_bh_theta(), 0.0..=2.0)
-                );
-
-                ui.label("Nodes");
-                ui.add(
-                    Slider::new(self.physics_components.node_count(), 0..=100000)
-                );
-
                 ui.add(Checkbox::new(&mut self.perspective_camera, "Use perspective camera"));
-
-                ui.add(Checkbox::new(&mut lock.bh_physics(), "B-h physics"));
 
                 ui.add(Checkbox::new(&mut self.physics_components.running, "simulate"));
                 if ui.button("Step").clicked() {
                     self.physics_components.step = true;
-                }
-
-                if ui.button("Kill").clicked() {
-                    self.physics_components.kill = true;
                 }
 
                 if self.perspective_camera {
