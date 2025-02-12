@@ -14,6 +14,8 @@ layout(std430, binding = 0 ) buffer LocationsIn {
 struct Ordering {
     uint node_id;
     uint cell_id;
+    int offset1;
+    int offset2;
 };
 layout(std430, binding = 2 ) buffer SpatialOrdering {
     Ordering lookup[];
@@ -22,7 +24,6 @@ layout(std430, binding = 2 ) buffer SpatialOrdering {
 /* Maps a cell-id to the respective nodes index, as well as element count */
 struct CellLookup {
     int order_index;
-    int element_count;
 };
 layout(std430, binding = 3 ) buffer SpatialLookup {
     CellLookup cells[];

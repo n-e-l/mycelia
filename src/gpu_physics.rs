@@ -19,11 +19,10 @@ use rand::rngs::StdRng;
 #[derive(Copy, Clone)]
 #[repr(C, packed)]
 struct Node {
-    position: Vec4,
+    position: Vec3,
     edge_id: i32,
-    cell_id: i32,
-    unused1: i32,
-    unused2: i32,
+    velocity: Vec3,
+    density: f32,
 }
 
 #[derive(Debug)]
@@ -38,17 +37,14 @@ struct Edge {
 struct Ordering {
     node_id: i32,
     cell_id: i32,
+    offset1: i32,
+    offset2: i32,
 }
 
 #[derive(Debug)]
 #[derive(Copy, Clone)]
 struct Lookup {
     ordering_id: u32,
-}
-
-struct Order {
-    position: Vec3,
-    edge_index: u32,
 }
 
 struct Pipeline {
@@ -71,6 +67,9 @@ pub struct PhysicsComponent {
     sort_pipeline: Option<Pipeline>,
     repulsion: f32,
     pub edge_attraction: f32,
+    pub running: bool,
+    pub step: bool,
+    pub kill: bool
 }
 
 #[derive(Pod, Zeroable)]
@@ -96,7 +95,10 @@ struct BitonicPushConstants {
 impl PhysicsComponent {
     pub(crate) fn new() -> Self {
         Self {
-            node_count: 50000,
+            running: true,
+            step: false,
+            kill: false,
+            node_count: 40100,
             edge_count: 1,
             repulsion: 0.2,
             edge_attraction: 0.2,
@@ -140,8 +142,8 @@ impl PhysicsComponent {
         self.edge_buffer.as_ref().unwrap().binding()
     }
 
-    pub fn node_count(&self) -> usize {
-        self.node_count
+    pub fn node_count(&mut self) -> &mut usize {
+        &mut self.node_count
     }
 
     pub fn edge_count(&self) -> usize {
@@ -176,11 +178,10 @@ impl PhysicsComponent {
         let (_, node_mem, _) = unsafe { node_buffer_a.mapped().align_to_mut::<Node>() };
         for i in 0..self.node_count {
             node_mem[i] = Node {
-                position: Vec4::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>(), 0.) * 0.2 - 0.1,
+                position: Vec3::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>()) * 0.2 - 0.1,
                 edge_id: 0,
-                cell_id: 0,
-                unused1: 0,
-                unused2: 0
+                velocity: Vec3::ZERO,
+                density: 0.,
                 // position: Vec3::new(1., 1., 1.) * i as f32 / self.node_count as f32 * 0.2 - 0.1,
             };
         }
@@ -242,13 +243,13 @@ impl PhysicsComponent {
         let (_, node_mem, _) = unsafe { self.node_buffer_a.as_mut().unwrap().mapped().align_to_mut::<Node>() };
         node_mem.iter_mut().enumerate().rev().for_each(|(i, node)| {
             //node.position = Vec4::ZERO;
-            node.position = Vec4::new(rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, 1.);
+            node.position = Vec3::new(rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5);
         });
 
         // Update nodes
         edges.iter().enumerate().rev().for_each(|(i, edge)| {
             node_mem[edge.node0 as usize].edge_id = (i as u32 + 1) as i32;
-            node_mem[edge.node0 as usize].position = Vec4::new(rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, 1.);
+            node_mem[edge.node0 as usize].position = Vec3::new(rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5);
         });
 
         // Copy buffer a into the backbuffer
@@ -483,6 +484,7 @@ impl RenderComponent for PhysicsComponent {
 
             command_buffer.bind_pipeline(&compute);
 
+            // Reads from buffer b and writes to buffer a
             command_buffer.bind_push_descriptor(
                 &compute,
                 0,
@@ -502,6 +504,17 @@ impl RenderComponent for PhysicsComponent {
 
             let dispatches = self.node_count.div_ceil(128);
             command_buffer.dispatch(dispatches as u32, 1, 1 );
+
+            command_buffer.buffer_barrier(
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::PipelineStageFlags::COMPUTE_SHADER,
+                vk::AccessFlags::SHADER_WRITE,
+                vk::AccessFlags::SHADER_READ,
+                vk::DependencyFlags::default(),
+                self.node_buffer_a.as_ref().unwrap().size,
+                0,
+                self.node_buffer_a.as_ref().unwrap()
+            );
         }
 
         // Node sorting
@@ -515,8 +528,8 @@ impl RenderComponent for PhysicsComponent {
                 &[buffer_write_descriptor_set_a, buffer_write_descriptor_set_ordering, buffer_write_descriptor_set_lookup]
             );
 
-            let dispatches = self.node_count.div(2).div_ceil(128);
             let num_stages = (self.node_count as f32).log2().ceil() as usize;
+            let dispatches = 2_u32.pow(num_stages as u32).div(2).div_ceil(128);
             for stage_index in 0..num_stages {
                 for step_index in 0..(stage_index+1) {
 
@@ -533,8 +546,8 @@ impl RenderComponent for PhysicsComponent {
                     command_buffer.buffer_barrier(
                         vk::PipelineStageFlags::COMPUTE_SHADER,
                         vk::PipelineStageFlags::COMPUTE_SHADER,
-                        vk::AccessFlags::SHADER_READ,
                         vk::AccessFlags::SHADER_WRITE,
+                        vk::AccessFlags::SHADER_READ,
                         vk::DependencyFlags::default(),
                         self.order_buffer.as_ref().unwrap().size,
                         0,
@@ -610,40 +623,45 @@ impl RenderComponent for PhysicsComponent {
                 bytemuck::bytes_of(&push_constants)
             );
 
-            let dispatches = self.node_count.div_ceil(128);
-            command_buffer.dispatch(dispatches as u32, 1, 1 );
 
-            // unsafe {
-            //     static mut N: i32 = 0;
-            //     if N == 0 {
-            //
-            //         command_buffer.dispatch(dispatches as u32, 1, 1 );
-            //     }
-            //     if N == 9 {
-            //         // Test: Print the ordering lookup
-            //         let (_, mapping, _) = unsafe { self.order_buffer.as_mut().unwrap().mapped().align_to::<Ordering>() };
-            //         for i in 0..self.node_count {
-            //             println!("{:?}", mapping[i]);
-            //         }
-            //         println!("---------");
-            //     }
-            //     if N == 10 {
-            //         // Test: Print the ordering lookup
-            //         let (_, mapping, _) = unsafe { self.order_buffer.as_mut().unwrap().mapped().align_to::<Ordering>() };
-            //         for i in 0..self.node_count {
-            //             println!("{:?}", mapping[i]);
-            //         }
-            //         println!("---------");
-            //         // Test: Print the lookup lookup
-            //         let (_, mapping, _) = unsafe { self.lookup_buffer.as_mut().unwrap().mapped().align_to::<u32>() };
-            //         for i in 0..1000 {
-            //             println!("{}, {:?}", i, mapping[i]);
-            //         }
-            //         println!("---------");
-            //         exit(0);
-            //     }
-            //     N = N + 1;
-            // }
+            unsafe {
+                static mut N: i32 = 0;
+                let dispatches = self.node_count.div_ceil(128);
+                if !self.kill {
+                    if self.running || self.step {
+                        self.step = false;
+                        command_buffer.dispatch(dispatches as u32, 1, 1 );
+                    }
+                } else {
+                    N = N + 1;
+                }
+
+                if self.kill && N == 2 {
+                    // Test: Print the nodes
+                    let (_, mapping, _) = unsafe { self.node_buffer_a.as_mut().unwrap().mapped().align_to::<Node>() };
+                    for i in 0..self.node_count {
+                        println!("{}: {:?}", i, mapping[i]);
+                    }
+                    // Test: Print the ordering lookup
+                    let (_, mapping, _) = unsafe { self.order_buffer.as_mut().unwrap().mapped().align_to::<Ordering>() };
+                    for i in 0..self.node_count {
+                        // println!("{}: {:?}", i, mapping[i]);
+                    }
+                    println!("---------");
+                    // Test: Print the lookup lookup
+                    // let mut sectors = Vec::new();
+                    let (_, mapping, _) = unsafe { self.lookup_buffer.as_mut().unwrap().mapped().align_to::<u32>() };
+                    // for i in 0..1000 {
+                    //     println!("{}: {:?}", i, mapping[i]);
+                    //     if !sectors.contains(&mapping[i]) {
+                    //         sectors.push(mapping[i]);
+                    //     }
+                    // }
+                    // println!("sectors: {:?}", sectors);
+                    println!("---------");
+                    exit(0);
+                }
+            }
         }
     }
 }

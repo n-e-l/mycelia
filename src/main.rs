@@ -155,7 +155,7 @@ impl GuiComponent for Application {
             }
         });
 
-        self.graph_renderer.lock().unwrap().graph_data(self.physics_components.node_count(), self.physics_components.node_buffer(), self.physics_components.edge_count(), self.physics_components.edge_buffer());
+        self.graph_renderer.lock().unwrap().graph_data(*self.physics_components.node_count(), self.physics_components.node_buffer(), self.physics_components.edge_count(), self.physics_components.edge_buffer());
 
 
         // Show selected nodes' details
@@ -223,11 +223,23 @@ impl GuiComponent for Application {
                     Slider::new(lock.get_bh_theta(), 0.0..=2.0)
                 );
 
+                ui.label("Nodes");
+                ui.add(
+                    Slider::new(self.physics_components.node_count(), 0..=100000)
+                );
+
                 ui.add(Checkbox::new(&mut self.perspective_camera, "Use perspective camera"));
 
                 ui.add(Checkbox::new(&mut lock.bh_physics(), "B-h physics"));
 
-                ui.add(Checkbox::new(&mut lock.run_physics(), "simulate"));
+                ui.add(Checkbox::new(&mut self.physics_components.running, "simulate"));
+                if ui.button("Step").clicked() {
+                    self.physics_components.step = true;
+                }
+
+                if ui.button("Kill").clicked() {
+                    self.physics_components.kill = true;
+                }
 
                 if self.perspective_camera {
                     self.graph_renderer.lock().unwrap().transform(self.transform_pers * self.view_transform);

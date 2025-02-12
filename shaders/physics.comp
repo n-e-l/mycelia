@@ -3,8 +3,10 @@
 layout ( local_size_x = 128, local_size_y = 1, local_size_z = 1 ) in;
 
 struct Node {
-    vec4 p;
-    ivec4 i;
+    vec3 p;
+    int i;
+    vec3 v;
+    float density;
 };
 layout(std430, binding = 0 ) buffer LocationsIn {
     Node nodes[];
@@ -17,6 +19,8 @@ layout(std430, binding = 1 ) buffer LocationsOut {
 struct Ordering {
     int node_id;
     int cell_id;
+    int offset1;
+    int offset2;
 };
 layout(std430, binding = 2 ) buffer SpatialOrdering {
     Ordering lookup[];
@@ -37,12 +41,15 @@ layout( push_constant ) uniform PushConstants
 } constants;
 
 int cell_hash(ivec3 p) {
-    int cell_id = 53 * p.x + 97 * p.y + 193 * p.z;
-    return cell_id - ( 100000 * int(floor( cell_id / 100000. )));
+    int cell_id = 389 * p.x + 1543 * p.z + 3079 * p.y;
+    return cell_id - ( 1000 * int(floor( cell_id / 1000. )));
 }
 
+#define SCALE 200.
+
 ivec3 cell_index_world(vec3 p) {
-    return ivec3(p * 0.5 / constants.repulsion);
+    vec3 scaled = p * SCALE;
+    return ivec3(scaled);
 }
 
 void main()
@@ -56,6 +63,8 @@ void main()
     Node n1 = node_buffer_in.nodes[id];
 
     ivec3 cell_pos = cell_index_world(n1.p.xyz);
+    float density = 0.;
+    float k = 1. / SCALE;
     for( int x = -1; x <= 1; x++ )
     {
         for (int y = -1; y <= 1; y++)
@@ -76,8 +85,12 @@ void main()
 
                     vec3 diff = n2.p.xyz - n1.p.xyz;
                     float l = length(diff);
-                    if( l >= 0.001 ) {
-                        force -= normalize(diff) * 0.0000001 * constants.repulsion * constants.repulsion / (l * l);
+                    if( l >= 0.000001 && l < k) {
+//                        force -= normalize(diff) * 0.0001 * constants.repulsion * constants.repulsion / l;
+                        float f = (k - l);
+                        density += f / k;
+//                        force -= diff * 0.000003 * f * f;
+                        force -= normalize(diff) * 1. * constants.repulsion * constants.repulsion * f;
                     }
 
                     lookup_id += 1;
@@ -87,15 +100,32 @@ void main()
         }
     }
 
-    force += -normalize(n1.p.xyz) * length(n1.p.xyz) * length(n1.p.xyz) * 0.01;
+//    for( int i = 0; i < constants.nodes; i++ ) {
+//        Node n2 = node_buffer_in.nodes[i];
+//
+//        vec3 diff = n2.p - n1.p;
+//        float l = length(diff);
+//        if( l >= 0.001 ) {
+//            force -= normalize(diff) * 0.0000001 * constants.repulsion * constants.repulsion / (l * l);
+//        }
+//    }
 
-    if( length( n1.p.xyz + force ) > 1. ) {
+    force += -normalize(n1.p.xyz) * length(n1.p.xyz) * 0.000008;
+
+//    if( length( n1.p.xyz + force ) > 1. ) {
         // node_buffer_out.nodes[id].p = vec4( normalize(n1.p.xyz + force) * .01, 0.);
-        return;
-    }
-    vec4 new_pos = n1.p + vec4(force, 0);
+//        return;
+//    }
+
+    n1.v *= 1. - density ;
+    vec3 velocity = n1.v + force;
+    vec3 new_pos = n1.p + velocity;
+
     node_buffer_out.nodes[id].p = new_pos;
+    node_buffer_out.nodes[id].density = density;
+    node_buffer_out.nodes[id].v = velocity;
+//    node_buffer_out.nodes[id].v *= .99;
 
     // Calculate the cell index and store in the lookup table
-    spatial_ordering.lookup[id] = Ordering(id, cell_hash(cell_index_world(new_pos.xyz)));
+    spatial_ordering.lookup[id] = Ordering(id, cell_hash(cell_index_world(new_pos.xyz)), 0, 0);
 }
