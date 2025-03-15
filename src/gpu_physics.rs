@@ -14,6 +14,7 @@ use petgraph::matrix_graph::Nullable;
 use rand::{random, Rng, SeedableRng};
 use log::error;
 use rand::rngs::StdRng;
+use crate::world::World;
 
 #[derive(Debug)]
 #[derive(Copy, Clone)]
@@ -66,9 +67,9 @@ impl PhysicsComponent {
         Self {
             running: true,
             step: false,
-            node_count: 2000,
-            edge_count: 1900,
-            repulsion: 0.2,
+            node_count: 10000,
+            edge_count: 9000,
+            repulsion: 1.2,
             edge_attraction: 0.2,
             node_buffer_a: None,
             node_buffer_b: None,
@@ -77,6 +78,56 @@ impl PhysicsComponent {
             edge_pipeline: None,
             descriptorsetlayout: None,
         }
+    }
+
+    pub fn set_nodes(&mut self, world: &World) {
+        self.node_count = world.node_count();
+        self.edge_count = world.edge_count();
+
+        let mut rng = StdRng::seed_from_u64(3243451135u64);
+        let (_, node_mem, _) = unsafe { self.node_buffer_b.as_mut().unwrap().mapped().align_to_mut::<Node>() };
+        for (i, node) in world.nodes().iter().enumerate() {
+            node_mem[i] = Node {
+                density: node.level as f32,
+                position: Vec3::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>()) * 0.2 - 0.1,
+                edge_id: 0,
+                velocity: Vec3::ZERO,
+            };
+        }
+
+        let mut edges = vec![];
+        for (i, edge) in world.edges().iter().enumerate() {
+            edges.push(Edge {
+                node0: edge.source().index() as u32,
+                node1: edge.target().index() as u32,
+            });
+        }
+
+        println!("edge_count: {}", edges.len());
+
+        // Add the reverse edges as well
+        let mut reverse_edges = edges.clone().iter().map(|edge| {
+            Edge {
+                node0: edge.node1,
+                node1: edge.node0
+            }
+        }).collect::<Vec<Edge>>();
+        edges.append(&mut reverse_edges);
+
+        // Sort by starting node
+        edges.sort_by(|a, b| a.node0.cmp(&b.node0));
+
+        let (_, edge_mem, _) = unsafe { self.edge_buffer.as_mut().unwrap().mapped().align_to_mut::<Edge>() };
+        for (i,e) in edges.iter().enumerate() {
+            edge_mem[i] = *e;
+            println!("edge: {} {}", e.node0, e.node1);
+        }
+
+        // Update nodes
+        edges.iter().enumerate().rev().for_each(|(i, edge)| {
+            node_mem[edge.node0 as usize].edge_id = (i as u32 + 1) as i32;
+            node_mem[edge.node0 as usize].position = Vec3::new(rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5);
+        });
     }
 
     pub fn node_buffer(&self) -> DescriptorBufferInfo {

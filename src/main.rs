@@ -23,7 +23,7 @@ mod gpu_physics;
 struct Application {
     physics_components: PhysicsComponent,
     graph_renderer: Arc<Mutex<GraphRenderer>>,
-    graph: Arc<Mutex<World>>,
+    world: Arc<Mutex<World>>,
     view_transform: Mat4,
     screen_transform_ortho: Mat4,
     screen_transform: Mat4,
@@ -35,7 +35,7 @@ struct Application {
 impl Application {
 
     async fn reload_graph(&mut self) {
-        let mut lock = self.graph.lock().unwrap();
+        let mut lock = self.world.lock().unwrap();
     }
 
     async fn new(graph_renderer: Arc<Mutex<GraphRenderer>>) -> Application {
@@ -44,9 +44,11 @@ impl Application {
 
         // Transform
         let scaling = 1.;
-        let width = 1600.;
-        let height = 900.;
+        let width = 1200.;
+        let height = 1200.;
         let aspect_ratio = width / height;
+
+        let view_transform= Mat4::from_scale(Vec3::new(1., 1., 1.));
 
         // ortho
         let scale = Mat4::from_scale(Vec3::new(1. ,aspect_ratio, 1.));
@@ -55,25 +57,27 @@ impl Application {
 
         // pers
         let camera_dist = 1.2;
-        let translate = Mat4::from_translation(Vec3::new(0., 0., camera_dist));
+        let translate = Mat4::from_translation(Vec3::new(0., 0., -camera_dist));
         let projection = Mat4::perspective_rh(1.2, aspect_ratio, 0.01, 10.);
         let transform_pers = projection * translate;
+        graph_renderer.lock().unwrap().transform(transform_pers * view_transform);
 
         let screen_translate = Mat4::from_translation(Vec3::new(width, height, 1.));
         let screen_scale = Mat4::from_scale(Vec3::new(width * 2., height * 2., 1.));
         let screen_transform = screen_translate * screen_scale;
 
         let world = World::new();
+        let mut physics_components = PhysicsComponent::new();
 
         Self {
-            physics_components: PhysicsComponent::new(),
-            graph: Arc::new(Mutex::new(world)),
+            physics_components,
+            world: Arc::new(Mutex::new(world)),
             camera_dist,
             graph_renderer: graph_renderer.clone(),
             screen_transform_ortho,
             transform_pers,
             screen_transform,
-            view_transform: Mat4::from_scale(Vec3::new(1., 1., 1.)),
+            view_transform,
             perspective_camera: true,
         }
     }
@@ -84,7 +88,7 @@ impl GuiComponent for Application {
 
         // Todo: Move to an update call
         // Update graph data
-        let mut lock = self.graph.lock().unwrap();
+        let mut lock = self.world.lock().unwrap();
         lock.update();
 
         // Gui code
@@ -93,8 +97,8 @@ impl GuiComponent for Application {
             if x.raw_scroll_delta.y != 0. {
                 self.camera_dist += x.raw_scroll_delta.y * 0.001;
 
-                let width = 1600.;
-                let height = 900.;
+                let width = 1080.;
+                let height = 1080.;
                 let aspect_ratio = width / height;
                 let translate = Mat4::from_translation(Vec3::new(0., 0., 1. / -self.camera_dist));
                 let projection = Mat4::perspective_rh(1.2, aspect_ratio, 0.01, 10.);
@@ -126,7 +130,7 @@ impl GuiComponent for Application {
                     let mut t = 0.0;
                     for _ in 0..100 {
                         let rp = wp.xyz() + dir * t;
-                        let near = lock.nodes().enumerate()
+                        let near = lock.nodes_mut().enumerate()
                             .min_by_key(|(i, n)| {
                                 OrderedFloat((n.pos - rp).length() - 0.01)
                             })
@@ -138,7 +142,7 @@ impl GuiComponent for Application {
 
                         if near.1 < 0.0001 {
                             // We have a hit
-                            lock.nodes().nth( near.0 ).unwrap().selected = true;
+                            //lock.nodes_mut().nth( near.0 ).unwrap().selected = true;
                             break;
                         }
 
@@ -149,8 +153,6 @@ impl GuiComponent for Application {
                 }
             }
         });
-
-        self.graph_renderer.lock().unwrap().graph_data(*self.physics_components.node_count(), self.physics_components.node_buffer(), self.physics_components.edge_count(), self.physics_components.edge_buffer());
 
 
         // Show selected nodes' details
@@ -206,7 +208,7 @@ impl GuiComponent for Application {
                 );
                 ui.label("Repulsion");
                 ui.add(
-                    Slider::new(self.physics_components.repulsion(), 0.0..=1.0)
+                    Slider::new(self.physics_components.repulsion(), 0.0..=4.0)
                 );
                 ui.label("Center attraction");
                 ui.add(
@@ -257,9 +259,11 @@ impl RenderComponent for Application {
     fn initialize(&mut self, renderer: &mut Renderer) {
         self.physics_components.initialize(renderer);
         self.graph_renderer.lock().unwrap().initialize(renderer);
+        self.physics_components.set_nodes(&self.world.lock().unwrap());
     }
 
     fn render(&mut self, renderer: &mut Renderer, command_buffer: &mut CommandBuffer, swapchain_image: &Image, swapchain_image_view: &ImageView) {
+        self.graph_renderer.lock().unwrap().graph_data(*self.physics_components.node_count(), self.physics_components.node_buffer(), self.physics_components.edge_count(), self.physics_components.edge_buffer());
         self.physics_components.render(renderer, command_buffer, swapchain_image, swapchain_image_view);
         self.graph_renderer.lock().unwrap().render(renderer, command_buffer, swapchain_image, swapchain_image_view);
     }
@@ -274,10 +278,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let application = Arc::new(Mutex::new(Application::new(renderer.clone()).await));
     App::run(
         AppConfig::default()
-            .width(1600)
-            .height(900)
+            .width(1080)
+            .height(1080)
             .log_fps(true)
-            .vsync(false),
+            .vsync(true),
         application.clone(),
         Some(application.clone())
     );

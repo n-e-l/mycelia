@@ -45,7 +45,7 @@ void main()
 //    }
 
     float l = length(n1.p.xyz);
-    force += -normalize(n1.p.xyz) * 0.007 * l;
+    force += -normalize(n1.p.xyz) * 0.011 * l;
 
     node_buffer_out.nodes[id].p = n1.p + force;
 }
