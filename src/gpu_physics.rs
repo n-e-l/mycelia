@@ -70,7 +70,7 @@ impl PhysicsComponent {
             node_count: 10000,
             edge_count: 9000,
             repulsion: 1.2,
-            edge_attraction: 0.2,
+            edge_attraction: 2.0,
             node_buffer_a: None,
             node_buffer_b: None,
             edge_buffer: None,
@@ -80,16 +80,35 @@ impl PhysicsComponent {
         }
     }
 
+    pub fn update_weights(&mut self, world: &World) {
+        let (_, node_mem_a, _) = unsafe { self.node_buffer_a.as_mut().unwrap().mapped().align_to_mut::<Node>() };
+        for (i, node) in world.nodes().iter().enumerate() {
+            node_mem_a[i].density = node.level;
+        }
+        let (_, node_mem_b, _) = unsafe { self.node_buffer_b.as_mut().unwrap().mapped().align_to_mut::<Node>() };
+        for (i, node) in world.nodes().iter().enumerate() {
+            node_mem_b[i].density = node.level;
+        }
+    }
+
     pub fn set_nodes(&mut self, world: &World) {
         self.node_count = world.node_count();
         self.edge_count = world.edge_count();
 
-        let mut rng = StdRng::seed_from_u64(3243451135u64);
-        let (_, node_mem, _) = unsafe { self.node_buffer_b.as_mut().unwrap().mapped().align_to_mut::<Node>() };
+        let (_, node_mem_a, _) = unsafe { self.node_buffer_a.as_mut().unwrap().mapped().align_to_mut::<Node>() };
         for (i, node) in world.nodes().iter().enumerate() {
-            node_mem[i] = Node {
+            node_mem_a[i] = Node {
                 density: node.level as f32,
-                position: Vec3::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>()) * 0.2 - 0.1,
+                position: node_mem_a[i].position,
+                edge_id: 0,
+                velocity: Vec3::ZERO,
+            };
+        }
+        let (_, node_mem_b, _) = unsafe { self.node_buffer_b.as_mut().unwrap().mapped().align_to_mut::<Node>() };
+        for (i, node) in world.nodes().iter().enumerate() {
+            node_mem_b[i] = Node {
+                density: node.level as f32,
+                position: node_mem_b[i].position,
                 edge_id: 0,
                 velocity: Vec3::ZERO,
             };
@@ -102,8 +121,6 @@ impl PhysicsComponent {
                 node1: edge.target().index() as u32,
             });
         }
-
-        println!("edge_count: {}", edges.len());
 
         // Add the reverse edges as well
         let mut reverse_edges = edges.clone().iter().map(|edge| {
@@ -120,13 +137,12 @@ impl PhysicsComponent {
         let (_, edge_mem, _) = unsafe { self.edge_buffer.as_mut().unwrap().mapped().align_to_mut::<Edge>() };
         for (i,e) in edges.iter().enumerate() {
             edge_mem[i] = *e;
-            println!("edge: {} {}", e.node0, e.node1);
         }
 
         // Update nodes
         edges.iter().enumerate().rev().for_each(|(i, edge)| {
-            node_mem[edge.node0 as usize].edge_id = (i as u32 + 1) as i32;
-            node_mem[edge.node0 as usize].position = Vec3::new(rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5);
+            node_mem_a[edge.node0 as usize].edge_id = (i as u32 + 1) as i32;
+            node_mem_b[edge.node0 as usize].edge_id = (i as u32 + 1) as i32;
         });
     }
 

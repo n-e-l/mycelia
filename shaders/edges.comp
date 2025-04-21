@@ -8,7 +8,7 @@ struct Node {
     vec3 p;
     int i;
     vec3 v;
-    int n;
+    float n;
 };
 layout(std430, binding = 1 ) buffer NodeLocations {
     Node nodes[];
@@ -36,7 +36,7 @@ vec3 palette( in float t, in vec3 a, in vec3 b, in vec3 c, in vec3 d )
 void dda_line( ivec2 p0, ivec2 p1, vec3 c0, vec3 c1 )
 {
 
-    if( p0.x < 0 || p0.y < 0 || p1.x < 0 || p1.y < 0 || p1.x > 1600*2 || p0.x > 1600*2 || p1.y > 900*2 || p0.y > 900*2 )
+    if( p0.x < 0 || p0.y < 0 || p1.x < 0 || p1.y < 0 || p1.x > 1600*2 || p0.x > 1600*2 || p1.y > 1600*2 || p0.y > 1600*2 )
     {
         return;
     }
@@ -111,17 +111,24 @@ void main()
     p2.x += screenSize.x / 2.;
     p2.y += screenSize.y / 2.;
 
-    float s = 13.;
-    float t0 = length(node_buffer.nodes[e.n0].p.xyz) * s;
-    float t1 = length(node_buffer.nodes[e.n1].p.xyz) * s;
-    vec3 c0 = palette( t0, vec3( 0.1, 0.4, 0.5 ), vec3( 0.4, 0.1, 0.3 ), vec3( 1.0, 0.2, 0.3 ), vec3( 0.1, 0.20, 0.85 ) );
-    vec3 c1 = palette( t1, vec3( 0.1, 0.4, 0.5 ), vec3( 0.4, 0.1, 0.3 ), vec3( 1.0, 0.2, 0.3 ), vec3( 0.1, 0.20, 0.85 ) );
+    float s = 1.;
+    float o = 0.;
+    float t0 = o + node_buffer.nodes[e.n0].n * s;
+    float t1 = o + node_buffer.nodes[e.n1].n * s;
+    vec3 c0 = palette( t0, vec3( 0.1, 0.2, 0.5 ), vec3( 0.1, 0.3, 0.3 ), vec3( 1.0, 0.2, 0.2 ), vec3( 0.1, 0.20, 0.85 ) );
+    vec3 c1 = palette( t1, vec3( 0.1, 0.4, 0.5 ), vec3( 0.1, 0.3, 0.3 ), vec3( 1.0, 0.2, 0.2 ), vec3( 0.1, 0.20, 0.85 ) );
+    t0 = min(1., max( t0, 0.));
+    t1 = min(1., max( t1, 0.));
+    c0 = t0 * vec3(1., 1., 0.) + (1. - t0) * vec3(1., 0., 1.) * .2;
+    c1 = t1 * vec3(1., 1., 0.) + (1. - t1) * vec3(1., 0., 1.) * .2;
 
     ivec2 ip1 = ivec2( p1.xy );
     ivec2 ip2 = ivec2( p2.xy );
     dda_line(ip1, ip2, c0, c1);
     dda_line(ip1 + ivec2(1,1), ip2 + ivec2(1,1), c0, c1);
     dda_line(ip1 + ivec2(-1,-1), ip2 + ivec2(-1,-1), c0, c1);
+    dda_line(ip1 + ivec2(-1,-2), ip2 + ivec2(-1,-1), c0, c1);
+    dda_line(ip1 + ivec2(-1,-3), ip2 + ivec2(-1,-1), c0, c1);
     dda_line(ip1 + ivec2(-1,1), ip2 + ivec2(-1,1), c0, c1);
     dda_line(ip1 + ivec2(1,-1), ip2 + ivec2(1,-1), c0, c1);
 }

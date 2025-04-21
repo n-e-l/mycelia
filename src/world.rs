@@ -2,9 +2,10 @@ use std::ops::Index;
 use std::time::Instant;
 use glam::Vec3;
 use petgraph::{Directed, Direction};
+use petgraph::data::Build;
 use petgraph::graph::{DiGraph, Edge, Edges, NodeIndex, NodeWeightsMut, UnGraph};
 use petgraph::prelude::EdgeRef;
-use petgraph::visit::NodeCount;
+use petgraph::visit::{IntoEdges, IntoEdgesDirected, NodeCount};
 use rand::random;
 
 #[derive(Default)]
@@ -12,18 +13,18 @@ use rand::random;
 #[derive(Clone)]
 pub struct Node {
     pub pos: Vec3,
-    pub level: u32
+    pub level: f32
 }
 
 impl Node {
-    pub fn new_random(level: u32) -> Node {
+    pub fn new_random(level: f32) -> Node {
         Node {
             pos: Vec3::new(random::<f32>() - 0.5, random::<f32>() - 0.5, random::<f32>() - 0.5) * 0.3,
             level
         }
     }
 
-    pub fn new(pos: Vec3, level: u32) -> Node {
+    pub fn new(pos: Vec3, level: f32) -> Node {
         Node {
             pos,
             level
@@ -44,46 +45,37 @@ impl World {
     pub fn new() -> Self {
 
         let mut g = DiGraph::<Node, ()>::new();
-        g.add_node(Node::new_random(0));
 
-        let layers = vec![3, 3, 3];
-        let mut index = 0;
-        let mut stack: Vec<(usize, usize)> = vec![];
-        let mut child_index = 0;
-        loop {
-
-            // Step out
-            let node_count = layers[stack.len()];
-            if child_index > node_count {
-                if let Some((parent, child)) = stack.pop() {
-                    index = parent;
-                    child_index = child;
-                    continue;
-                } else {
-                    // Done
-                    break;
-                }
-            }
-
-            // Add child_node
-            g.add_node(Node::new_random(stack.len() as u32 + 1));
-            let child_array_index = g.node_count() - 1;
-
-            // Add an edge to the child
-            let id_a = g.node_indices().nth(index).unwrap();
-            let id_b = g.node_indices().nth(child_array_index).unwrap();
-            g.update_edge(id_a, id_b, ());
-
-            // Add the child's childs if needed
-            if stack.len() + 1 < layers.len() {
-                stack.push((index, child_index + 1));
-                index = child_array_index;
-                child_index = 0; // Deeper we always set zero, because we only return when all the childs are added
-                continue;
-            }
-
-            child_index = child_index + 1;
+        let nodes: usize = 400;
+        for i in 0..nodes {
+            g.add_node(Node::new_random(0.));
         }
+
+        for i in 0..( nodes as f32 * 1.04 ) as usize {
+            let i_a = i % nodes;
+            // let i_a = random::<usize>() % nodes;
+            let i_b = random::<usize>() % nodes;
+            if i_a == i_b { continue; }
+            g.add_edge(NodeIndex::new(i_a), NodeIndex::new(i_b), ());
+        }
+
+        // for x in 0..100 {
+        //     for y in 0..10 {
+        //         let mut index = g.node_count();
+        //         g.add_node(Node::new(Vec3::new(x as f32, y as f32, -0.5) / 10. + Vec3::new(-0.5, -0.5, 0.), 0));
+        //
+        //         for z in 0..9 {
+        //
+        //             g.add_node(Node::new(Vec3::new(x as f32, y as f32, z as f32 - 5.) / 10. + Vec3::new(-0.5, -0.5, 0.1), z + 1));
+        //
+        //             // Add an edge to the child
+        //             let id_a = g.node_indices().nth(index).unwrap();
+        //             let id_b = g.node_indices().nth(index + 1).unwrap();
+        //             g.update_edge(id_a, id_b, ());
+        //             index += 1;
+        //         }
+        //     }
+        // }
 
         Self {
             edge_strength: 20.0,
@@ -116,6 +108,22 @@ impl World {
     }
 
     pub fn update(&mut self) {
+
+        let g2 = self.graph.clone();
+        g2.node_indices().for_each(|i| {
+            let w = g2.node_weight(i).unwrap().level;
+            if w == 0.0 {
+                return;
+            }
+
+            let count = g2.edges_directed(i, Direction::Outgoing).count();
+            if count == 0 { return; }
+
+            g2.edges_directed(i, Direction::Outgoing).for_each(|edge| {
+                self.graph.node_weight_mut(edge.target()).unwrap().level = 1.;
+            });
+            self.graph.node_weight_mut(i).unwrap().level = 0.;
+        });
 
         if !self.run_physics {
             return;

@@ -1,4 +1,4 @@
-use std::ops::Mul;
+use std::ops::{Mul, RangeInclusive};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use ash::vk::{Image, ImageView};
@@ -12,6 +12,7 @@ use dotenv::dotenv;
 use egui::{Align2, Checkbox, Slider, TextWrapMode, Vec2};
 use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 use ordered_float::OrderedFloat;
+use rand::random;
 use world::World;
 use crate::gpu_physics::PhysicsComponent;
 use crate::renderer::{GraphRenderer, RenderNode};
@@ -30,6 +31,9 @@ struct Application {
     camera_dist: f32,
     transform_pers: Mat4,
     perspective_camera: bool,
+    step_speed: u32,
+    frame: usize,
+    auto_rotate: bool,
 }
 
 impl Application {
@@ -39,8 +43,6 @@ impl Application {
     }
 
     async fn new(graph_renderer: Arc<Mutex<GraphRenderer>>) -> Application {
-
-        let mut graph = World::new();
 
         // Transform
         let scaling = 1.;
@@ -79,6 +81,9 @@ impl Application {
             screen_transform,
             view_transform,
             perspective_camera: true,
+            step_speed: 1,
+            frame: 0,
+            auto_rotate: false,
         }
     }
 }
@@ -86,10 +91,11 @@ impl Application {
 impl GuiComponent for Application {
     fn gui(&mut self, context: &egui::Context) {
 
+        self.frame += 1;
+
         // Todo: Move to an update call
         // Update graph data
         let mut lock = self.world.lock().unwrap();
-        lock.update();
 
         // Gui code
         context.input(|x| {
@@ -202,9 +208,16 @@ impl GuiComponent for Application {
             .resizable(true)
             .title_bar(true)
             .show(context, |ui| unsafe {
+                ui.checkbox(&mut self.auto_rotate, "Autorotate");
+                if self.auto_rotate {
+                    let rot_x = glam::Mat4::from_rotation_y(0.001);
+                    let rot_y = glam::Mat4::from_rotation_x(0.0003);
+                    self.view_transform = rot_x * rot_y * self.view_transform;
+                }
+
                 ui.label("Edge attraction");
                 ui.add(
-                    Slider::new(&mut self.physics_components.edge_attraction, 0.0..=100.0)
+                    Slider::new(&mut self.physics_components.edge_attraction, 0.0..=20.0)
                 );
                 ui.label("Repulsion");
                 ui.add(
@@ -227,6 +240,17 @@ impl GuiComponent for Application {
                 } else {
                     self.graph_renderer.lock().unwrap().transform(self.screen_transform_ortho * self.view_transform);
                 }
+
+                if ui.button("Activate").clicked() {
+                    let c = lock.node_count();
+                    lock.nodes_mut().nth(random::<usize>() % c).unwrap().level += 1.;
+                }
+
+                ui.add(Slider::new(&mut self.step_speed, RangeInclusive::new(0, 100)));
+                if self.frame as u32 % self.step_speed == 0 {
+                    lock.update();
+                }
+                self.physics_components.update_weights(&lock);
 
                 // if ui.button("Randomize").clicked() {
                 //     lock.randomize();
