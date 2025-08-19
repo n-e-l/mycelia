@@ -4,7 +4,7 @@ use std::time::Instant;
 use ash::vk::{Image, ImageView};
 use cen::app::App;
 use cen::app::app::AppConfig;
-use cen::app::gui::GuiComponent;
+use cen::app::gui::{GuiComponent, GuiSystem};
 use cen::graphics::Renderer;
 use cen::graphics::renderer::RenderComponent;
 use cen::vulkan::CommandBuffer;
@@ -12,6 +12,7 @@ use dotenv::dotenv;
 use egui::{Align2, Checkbox, Slider, TextWrapMode, Vec2};
 use glam::{Mat4, Vec3, Vec4, Vec4Swizzles};
 use ordered_float::OrderedFloat;
+use petgraph::visit::NodeCount;
 use rand::random;
 use world::World;
 use crate::gpu_physics::PhysicsComponent;
@@ -89,7 +90,11 @@ impl Application {
 }
 
 impl GuiComponent for Application {
-    fn gui(&mut self, context: &egui::Context) {
+
+    fn initialize_gui(&mut self, gui: &mut GuiSystem) {
+    }
+
+    fn gui(&mut self, system: &GuiSystem, context: &egui::Context) {
 
         self.frame += 1;
 

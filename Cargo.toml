@@ -8,10 +8,10 @@ edition = "2021"
 [dependencies]
 tokio = { version = "1.33.0", features = ["rt", "rt-multi-thread", "macros"] }
 dotenv = "0.15.0"
-cen = { path = "../cen" }
+cen = { git = "https://github.com/n-e-l/cen.git", rev = "0e2aaebf2ff5b919eb653e72866a175d1476a0f4" }
 ash = "0.38.0+1.3.281"
 bytemuck = "1.21.0"
-egui = "0.30.0"
+egui = "0.32.0"
 gpu-allocator = "0.27.0"
 glam = { version = "0.29.2", features = ["bytemuck"] }
 ordered-float = "4.6.0"

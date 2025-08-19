@@ -13,6 +13,7 @@ use gpu_allocator::MemoryLocation;
 use petgraph::matrix_graph::Nullable;
 use rand::{random, Rng, SeedableRng};
 use log::error;
+use petgraph::visit::{EdgeCount, IntoEdges, NodeCount};
 use rand::rngs::StdRng;
 use crate::world::World;
 
@@ -81,11 +82,13 @@ impl PhysicsComponent {
     }
 
     pub fn update_weights(&mut self, world: &World) {
-        let (_, node_mem_a, _) = unsafe { self.node_buffer_a.as_mut().unwrap().mapped().align_to_mut::<Node>() };
+        let mut guard_a = self.node_buffer_a.as_mut().unwrap().mapped().unwrap();
+        let (_, node_mem_a, _) = unsafe { guard_a.as_mut_slice().align_to_mut::<Node>() };
         for (i, node) in world.nodes().iter().enumerate() {
             node_mem_a[i].density = node.level;
         }
-        let (_, node_mem_b, _) = unsafe { self.node_buffer_b.as_mut().unwrap().mapped().align_to_mut::<Node>() };
+        let mut guard_b = self.node_buffer_b.as_mut().unwrap().mapped().unwrap();
+        let (_, node_mem_b, _) = unsafe { guard_b.as_mut_slice().align_to_mut::<Node>() };
         for (i, node) in world.nodes().iter().enumerate() {
             node_mem_b[i].density = node.level;
         }
@@ -95,7 +98,8 @@ impl PhysicsComponent {
         self.node_count = world.node_count();
         self.edge_count = world.edge_count();
 
-        let (_, node_mem_a, _) = unsafe { self.node_buffer_a.as_mut().unwrap().mapped().align_to_mut::<Node>() };
+        let mut guard_a = self.node_buffer_a.as_mut().unwrap().mapped().unwrap();
+        let (_, node_mem_a, _) = unsafe { guard_a.as_mut_slice().align_to_mut::<Node>() };
         for (i, node) in world.nodes().iter().enumerate() {
             node_mem_a[i] = Node {
                 density: node.level as f32,
@@ -104,7 +108,8 @@ impl PhysicsComponent {
                 velocity: Vec3::ZERO,
             };
         }
-        let (_, node_mem_b, _) = unsafe { self.node_buffer_b.as_mut().unwrap().mapped().align_to_mut::<Node>() };
+        let mut guard_b = self.node_buffer_b.as_mut().unwrap().mapped().unwrap();
+        let (_, node_mem_b, _) = unsafe { guard_b.as_mut_slice().align_to_mut::<Node>() };
         for (i, node) in world.nodes().iter().enumerate() {
             node_mem_b[i] = Node {
                 density: node.level as f32,
@@ -134,7 +139,8 @@ impl PhysicsComponent {
         // Sort by starting node
         edges.sort_by(|a, b| a.node0.cmp(&b.node0));
 
-        let (_, edge_mem, _) = unsafe { self.edge_buffer.as_mut().unwrap().mapped().align_to_mut::<Edge>() };
+        let mut edge_guard = self.edge_buffer.as_mut().unwrap().mapped().unwrap();
+        let (_, edge_mem, _) = unsafe { edge_guard.as_mut_slice().align_to_mut::<Edge>() };
         for (i,e) in edges.iter().enumerate() {
             edge_mem[i] = *e;
         }
@@ -206,15 +212,18 @@ impl PhysicsComponent {
         );
 
         // Copy start positions to node buffer
-        let (_, node_mem, _) = unsafe { node_buffer_a.mapped().align_to_mut::<Node>() };
-        for i in 0..self.node_count {
-            node_mem[i] = Node {
-                position: Vec3::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>()) * 0.2 - 0.1,
-                edge_id: 0,
-                velocity: Vec3::ZERO,
-                density: 0.,
-                // position: Vec3::new(1., 1., 1.) * i as f32 / self.node_count as f32 * 0.2 - 0.1,
-            };
+        {
+            let mut guard_a = node_buffer_a.mapped().unwrap();
+            let (_, node_mem, _) = unsafe { guard_a.as_mut_slice().align_to_mut::<Node>() };
+            for i in 0..self.node_count {
+                node_mem[i] = Node {
+                    position: Vec3::new(rng.gen::<f32>(), rng.gen::<f32>(), rng.gen::<f32>()) * 0.2 - 0.1,
+                    edge_id: 0,
+                    velocity: Vec3::ZERO,
+                    density: 0.,
+                    // position: Vec3::new(1., 1., 1.) * i as f32 / self.node_count as f32 * 0.2 - 0.1,
+                };
+            }
         }
 
         self.node_buffer_a = Some(node_buffer_a);
@@ -249,13 +258,17 @@ impl PhysicsComponent {
         // Sort by starting node
         edges.sort_by(|a, b| a.node0.cmp(&b.node0));
 
-        let (_, edge_mem, _) = unsafe { edge_buffer.mapped().align_to_mut::<Edge>() };
-        for i in 0..(self.edge_count * 2) {
-            edge_mem[i] = edges[i];
+        {
+            let mut edge_guard = edge_buffer.mapped().unwrap();
+            let (_, edge_mem, _) = unsafe { edge_guard.as_mut_slice().align_to_mut::<Edge>() };
+            for i in 0..(self.edge_count * 2) {
+                edge_mem[i] = edges[i];
+            }
         }
 
         // Set node positions to zero
-        let (_, node_mem, _) = unsafe { self.node_buffer_a.as_mut().unwrap().mapped().align_to_mut::<Node>() };
+        let mut guard_a = self.node_buffer_a.as_mut().unwrap().mapped().unwrap();
+        let (_, node_mem, _) = unsafe { guard_a.as_mut_slice().align_to_mut::<Node>() };
         node_mem.iter_mut().enumerate().rev().for_each(|(i, node)| {
             //node.position = Vec4::ZERO;
             node.position = Vec3::new(rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5, rng.gen::<f32>() - 0.5);
@@ -268,7 +281,8 @@ impl PhysicsComponent {
         });
 
         // Copy buffer a into the backbuffer
-        let (_, node_mem_b, _) = unsafe { self.node_buffer_b.as_mut().unwrap().mapped().align_to_mut::<Node>() };
+        let mut guard_b = self.node_buffer_b.as_mut().unwrap().mapped().unwrap();
+        let (_, node_mem_b, _) = unsafe { guard_b.as_mut_slice().align_to_mut::<Node>() };
         node_mem.iter().enumerate().for_each(|(i, n)| {
             node_mem_b[i] = node_mem[i];
         });
@@ -421,7 +435,7 @@ impl RenderComponent for PhysicsComponent {
                 vk::AccessFlags::SHADER_WRITE,
                 vk::AccessFlags::SHADER_READ,
                 vk::DependencyFlags::default(),
-                self.node_buffer_a.as_ref().unwrap().size,
+                self.node_buffer_a.as_mut().unwrap().size(),
                 0,
                 self.node_buffer_a.as_ref().unwrap()
             );

@@ -81,7 +81,7 @@ impl RenderComponent for GraphRenderer {
         );
 
         // Transition image
-        let mut image_command_buffer = CommandBuffer::new(&renderer.device, &renderer.command_pool);
+        let mut image_command_buffer = CommandBuffer::new(&renderer.device, &renderer.command_pool, false);
         image_command_buffer.begin();
         {
             renderer.transition_image(&image_command_buffer, image.handle(), vk::ImageLayout::UNDEFINED, vk::ImageLayout::GENERAL, vk::PipelineStageFlags::TOP_OF_PIPE, vk::PipelineStageFlags::BOTTOM_OF_PIPE, vk::AccessFlags::empty(), vk::AccessFlags::empty());

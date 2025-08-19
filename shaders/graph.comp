@@ -92,5 +92,6 @@ void main()
         circle( pos.xy, 1. / d * 0.6 * size, color);
     }
 
+    color = vec3(1);
     circle( pos.xy, 1. / d * 1.1 * size, color);
 }
