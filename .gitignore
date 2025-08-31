@@ -3,6 +3,7 @@
 
 # Secret filet
 .env
+.direnv
 
 # will have compiled files and executables
 debug/
